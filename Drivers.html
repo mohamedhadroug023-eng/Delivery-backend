@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Chauffeurs - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .app-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0;
+        }
+
+        .btn-back {
+            background-color: #edf2f7;
+            color: #4a5568;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            overflow-x: auto;
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+
+        .data-table th {
+            background-color: #edf2f7;
+            color: #2d3748;
+            padding: 10px;
+            font-size: 13px;
+            text-align: left;
+            border-bottom: 2px solid #cbd5e0;
+        }
+
+        .data-table td {
+            padding: 12px 10px;
+            font-size: 13px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        .badge-online {
+            background-color: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-offline {
+            background-color: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .badge-suspended {
+            background-color: #fed7d7;
+            color: #742a2a;
+        }
+
+        .btn-action {
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 4px;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-view {
+            background-color: #ebf8ff;
+            color: #3182ce;
+        }
+
+        .btn-suspend {
+            background-color: #fff5f5;
+            color: #e53e3e;
+        }
+
+        .btn-activate {
+            background-color: #f0fff4;
+            color: #38a169;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-box">
+        <h1 class="app-title">🛵 Liste des Chauffeurs</h1>
+        <a href="dashboard.html" class="btn-back">← Retour</a>
+    </div>
+
+    <fieldset>
+        <legend>Chauffeurs enregistrés</legend>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Chauffeur</th>
+                    <th>Téléphone</th>
+                    <th>Véhicule</th>
+                    <th>Statut</th>
+                    <th>Livraisons</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="drivers-list">
+                <tr>
+                    <td colspan="6" style="text-align:center;">Chargement des données...</td>
+                </tr>
+            </tbody>
+        </table>
+    </fieldset>
+
+    <script>
+        // دالة لجلب وتحديث السائقين ديناميكياً
+        async function fetchDrivers() {
+            try {
+                const response = await fetch('http://localhost:3000/api/admin/drivers');
+                const drivers = await response.json();
+
+                const tbody = document.getElementById('drivers-list');
+                tbody.innerHTML = '';
+
+                if (!drivers || drivers.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Aucun chauffeur trouvé</td></tr>';
+                    return;
+                }
+
+                drivers.forEach(driver => {
+                    const isSuspended = driver.account_status === 'suspended';
+                    let statusBadge = '';
+
+                    if (isSuspended) {
+                        statusBadge = '<span class="badge badge-suspended">🔴 Suspendu</span>';
+                    } else if (driver.is_online) {
+                        statusBadge = '<span class="badge badge-online">🟢 En ligne</span>';
+                    } else {
+                        statusBadge = '<span class="badge badge-offline">⚪ Hors ligne</span>';
+                    }
+
+                    const vehicleIcon = driver.vehicle_type === 'Car' ? '🚗 Voiture' : '🛵 Moto';
+
+                    const row = `
+                        <tr>
+                            <td><b>${driver.full_name}</b></td>
+                            <td>${driver.phone}</td>
+                            <td>${vehicleIcon}</td>
+                            <td>${statusBadge}</td>
+                            <td><b>${driver.total_deliveries || 0}</b></td>
+                            <td>
+                                <a href="driver-details.html?id=${driver.id}" class="btn-action btn-view">Voir</a>
+                                <button onclick="toggleDriverStatus(${driver.id}, '${driver.account_status}')" 
+                                        class="btn-action ${isSuspended ? 'btn-activate' : 'btn-suspend'}">
+                                    ${isSuspended ? 'Activer' : 'Suspendre'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Erreur lors du chargement des chauffeurs:", error);
+            }
+        }
+
+        // دالة لتغير حالة الحساب (تفعيل / حظر)
+        async function toggleDriverStatus(id, currentStatus) {
+            const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
+            try {
+                const res = await fetch(`http://localhost:3000/api/admin/drivers/${id}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_status: newStatus })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    fetchDrivers();
+                } else {
+                    alert("Erreur lors de la mise à jour du statut.");
+                }
+            } catch (error) {
+                console.error("Erreur serveur:", error);
+            }
+        }
+
+        // تشغيل الجلب فور الفتح والتحديث الحي كل 5 ثوانٍ
+        fetchDrivers();
+        setInterval(fetchDrivers, 5000);
+    </script>
+
+</body>
+
+</html>
