@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Restaurant - HADROUG DELIVERY</title>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f4f6f9;
+            color: #333;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #2E7D32;
+            overflow-x: hidden;
+            transition: 0.3s;
+            padding-top: 60px;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #1B5E20;
+            padding-left: 30px;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+        }
+
+        /* Header Styles */
+        .header {
+            background-color: #ffffff;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .menu-btn {
+            font-size: 26px;
+            cursor: pointer;
+            color: #2E7D32;
+            margin-right: 15px;
+        }
+
+        .header-logo {
+            height: 38px;
+            width: auto;
+            margin-right: 12px;
+        }
+
+        .app-title {
+            font-size: 18px;
+            color: #2E7D32;
+            font-weight: bold;
+        }
+
+        .btn-quick-request {
+            background-color: #2E7D32;
+            color: white;
+            padding: 10px 18px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .btn-quick-request:hover {
+            background-color: #1B5E20;
+        }
+
+        /* Dashboard Container */
+        .container {
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            margin: 25px 0 15px 0;
+            font-size: 18px;
+            color: #555;
+        }
+
+        /* Stat Cards Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            border-left: 5px solid #2E7D32;
+            transition: transform 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+        }
+
+        .card h3 {
+            font-size: 14px;
+            color: #777;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .card .value {
+            font-size: 26px;
+            font-weight: bold;
+            color: #2E7D32;
+        }
+
+        .card.accent {
+            border-left-color: #ff9800;
+        }
+        .card.accent .value {
+            color: #ff9800;
+        }
+
+        /* Orders Table Style */
+        .table-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+            font-size: 14px;
+        }
+
+        th {
+            background-color: #fafafa;
+            color: #666;
+            font-weight: 600;
+        }
+
+        .status {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status.in-progress {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .status.accepted {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar -->
+    <div id="menu" class="sidebar">
+        <span class="close" onclick="closeMenu()">&times;</span>
+        <a href="restaurant_dashboard.html">🏠 Dashboard</a>
+        <a href="request_driver.html">🛵 Demander un chauffeur</a>
+        <a href="ordres.html">📋 Commandes</a>
+        <a href="profil.html">👤 Profil</a>
+        <a href="factures.com.html">💳 Factures</a>
+        <a href="parametres.html">⚙️ Paramètres</a>
+        <a href="login.html" onclick="localStorage.clear();" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1);">🚪 Déconnexion</a>
+    </div>
+
+    <!-- Top Header with Logo -->
+    <div class="header">
+        <div class="header-left">
+            <span class="menu-btn" onclick="openMenu()">☰</span>
+            <img src="photo1.png" alt="Hadroug Delivery Logo" class="header-logo">
+            <h1 class="app-title">HADROUG DELIVERY</h1>
+        </div>
+        <a href="request_driver.html" class="btn-quick-request">+ Demander Chauffeur</a>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <h2 class="section-title">Aperçu aujourd'hui</h2>
+
+        <!-- Stats Grid (مفرغة من أرقام الاختبار الثابتة) -->
+        <div class="stats-grid">
+            <div class="card">
+                <h3>Commandes aujourd'hui</h3>
+                <div class="value" id="todayOrdersCount">--</div>
+            </div>
+
+            <div class="card accent">
+                <h3>Commandes en cours</h3>
+                <div class="value" id="activeOrdersCount">--</div>
+            </div>
+
+            <div class="card">
+                <h3>Solde Actuel</h3>
+                <div class="value" id="currentBalance">-- DT</div>
+            </div>
+
+            <div class="card">
+                <h3>Chauffeurs en ligne</h3>
+                <div class="value" id="onlineDriversCount">--</div>
+            </div>
+        </div>
+
+        <!-- Recent Active Orders -->
+        <h2 class="section-title">Commandes en cours</h2>
+        <div class="table-card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID Commande</th>
+                        <th>Adresse de livraison</th>
+                        <th>Chauffeur</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <!-- الجدول مفرغ وينتظر تحميل البيانات الحية فقط -->
+                <tbody id="ordersListTable">
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: #888;">Chargement des données en cours...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+    <script>
+        function openMenu() {
+            document.getElementById("menu").style.width = "250px";
+        }
+
+        function closeMenu() {
+            document.getElementById("menu").style.width = "0";
+        }
+
+        // جلب معرف المطعم الممرر
+        const restaurantId = localStorage.getItem('restaurant_id') || 1;
+
+        async function fetchLiveData() {
+            try {
+                const response = await fetch(`http://localhost:3000/api/dashboard/${restaurantId}`);
+                
+                if (!response.ok) throw new Error("Erreur serveur");
+                
+                const data = await response.json();
+
+                // 1. تحديث الكروت بالأرقام الحية القادمة من السيرفر
+                document.getElementById('todayOrdersCount').innerText = data.todayOrders;
+                document.getElementById('activeOrdersCount').innerText = `${data.activeOrders} 🛵`;
+                document.getElementById('currentBalance').innerText = `${data.balance} DT`;
+                document.getElementById('onlineDriversCount').innerText = `${data.onlineDrivers} 🟢`;
+
+                // 2. تحديث الجدول بالطلبات الحية فقط
+                const tbody = document.getElementById('ordersListTable');
+                tbody.innerHTML = '';
+
+                if (data.orders && data.orders.length > 0) {
+                    data.orders.forEach(order => {
+                        const driver = order.driver_name ? order.driver_name : 'En recherche...';
+                        const statusBadge = order.status === 'delivering'
+                            ? '<span class="status in-progress">En chemin 🛵</span>'
+                            : '<span class="status accepted">Assignation ⏳</span>';
+
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>#${order.id}</td>
+                            <td>${order.delivery_address}</td>
+                            <td>${driver}</td>
+                            <td>${statusBadge}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #888;">Aucune commande en cours pour le moment.</td></tr>';
+                }
+            } catch (err) {
+                console.error("Erreur lors de la mise à jour des données:", err);
+            }
+        }
+
+        // تشغيل الجلب فور فتح الصفحة وتكراره كل ثانيتين للتحديث الحي
+        fetchLiveData();
+        setInterval(fetchLiveData, 2000);
+    </script>
+
+</body>
+</html>
