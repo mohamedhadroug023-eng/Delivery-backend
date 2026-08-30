@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance & Factures - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .app-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0;
+        }
+
+        .btn-back {
+            background-color: #edf2f7;
+            color: #4a5568;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        /* شبكة ملخص الحسابات المالية */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .summary-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+        }
+
+        .summary-title {
+            font-size: 12px;
+            color: #718096;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .summary-amount {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1a202c;
+        }
+
+        .text-green { color: #2f855a; }
+        .text-blue { color: #2b6cb0; }
+        .text-orange { color: #c05621; }
+
+        /* الجدول والـ Fieldset */
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            overflow-x: auto;
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 650px;
+        }
+
+        .data-table th {
+            background-color: #edf2f7;
+            color: #2d3748;
+            padding: 10px;
+            font-size: 13px;
+            text-align: left;
+            border-bottom: 2px solid #cbd5e0;
+        }
+
+        .data-table td {
+            padding: 12px 10px;
+            font-size: 13px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        /* شارات حالة الدفع */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        .badge-paid {
+            background-color: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-pending {
+            background-color: #feebc8;
+            color: #744210;
+        }
+
+        /* أزرار الإجراءات */
+        .btn-action {
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+            background-color: #ebf8ff;
+            color: #3182ce;
+        }
+
+        .btn-pay {
+            background-color: #f0fff4;
+            color: #38a169;
+            margin-left: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-box">
+        <h1 class="app-title">💰 Finance & Factures</h1>
+        <a href="dashboard.html" class="btn-back">← Retour</a>
+    </div>
+
+    <!-- كروت إحصائيات المداخيل والعمولات -->
+    <div class="summary-grid">
+        <div class="summary-card">
+            <div class="summary-title">Total Livraisons</div>
+            <div class="summary-amount text-blue" id="total-deliveries-amount">0.000 DT</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-title">Commission Totale</div>
+            <div class="summary-amount text-green" id="total-commission-amount">0.000 DT</div>
+        </div>
+
+        <div class="summary-card">
+            <div class="summary-title">Reste à collecter</div>
+            <div class="summary-amount text-orange" id="remaining-amount">0.000 DT</div>
+        </div>
+    </div>
+
+    <!-- جدول الفواتير -->
+    <fieldset>
+        <legend>Historique des factures</legend>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#Facture</th>
+                    <th>Restaurant</th>
+                    <th>Commandes</th>
+                    <th>Commission Dûe</th>
+                    <th>Statut</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="invoices-list">
+                <tr>
+                    <td colspan="6" style="text-align:center;">Chargement des factures...</td>
+                </tr>
+            </tbody>
+        </table>
+    </fieldset>
+
+    <!-- سكريبت جلب وتحديث المالية والفواتير -->
+    <script>
+        async function fetchFinanceData() {
+            try {
+                // 1. جلب الإحصائيات المالية الكلية
+                const statsResponse = await fetch('http://localhost:3000/api/admin/finance/summary');
+                const stats = await statsResponse.json();
+
+                document.getElementById('total-deliveries-amount').innerText = `${parseFloat(stats.total_deliveries_amount || 0).toFixed(3)} DT`;
+                document.getElementById('total-commission-amount').innerText = `${parseFloat(stats.total_commission || 0).toFixed(3)} DT`;
+                document.getElementById('remaining-amount').innerText = `${parseFloat(stats.remaining_to_collect || 0).toFixed(3)} DT`;
+
+                // 2. جلب قائمة الفواتير
+                const invoicesResponse = await fetch('http://localhost:3000/api/admin/finance/invoices');
+                const invoices = await invoicesResponse.json();
+
+                const tbody = document.getElementById('invoices-list');
+                tbody.innerHTML = '';
+
+                if (!invoices || invoices.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Aucune facture trouvée</td></tr>';
+                    return;
+                }
+
+                invoices.forEach(inv => {
+                    const isPaid = inv.status === 'paid';
+                    const statusBadge = isPaid 
+                        ? '<span class="badge badge-paid">✅ Payé</span>' 
+                        : '<span class="badge badge-pending">⏳ En attente</span>';
+
+                    const payButton = !isPaid 
+                        ? `<button onclick="markAsPaid(${inv.id})" class="btn-action btn-pay">Marquer Payé</button>` 
+                        : '';
+
+                    const row = `
+                        <tr>
+                            <td><b>#FAC-${inv.invoice_code || inv.id}</b></td>
+                            <td>${inv.restaurant_name || '-'}</td>
+                            <td>${inv.orders_count || 0} cmd</td>
+                            <td><b>${parseFloat(inv.commission_amount || 0).toFixed(3)} DT</b></td>
+                            <td>${statusBadge}</td>
+                            <td>
+                                <a href="invoice-details.html?id=${inv.id}" class="btn-action">Imprimer</a>
+                                ${payButton}
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Erreur lors du chargement des données financières:", error);
+            }
+        }
+
+        // دالة لتغيير حالة الفاتورة إلى مدفوعة عند استلام العمولة
+        async function markAsPaid(invoiceId) {
+            try {
+                const res = await fetch(`http://localhost:3000/api/admin/finance/invoices/${invoiceId}/pay`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    fetchFinanceData();
+                } else {
+                    alert("Erreur lors de la mise à jour du paiement.");
+                }
+            } catch (error) {
+                console.error("Erreur serveur:", error);
+            }
+        }
+
+        // تشغيل الجلب فور التحميل والتحديث الحقيقي كل 5 ثوانٍ
+        fetchFinanceData();
+        setInterval(fetchFinanceData, 5000);
+    </script>
+
+</body>
+
+</html>
