@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paramètres System - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .app-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0;
+        }
+
+        .btn-back {
+            background-color: #edf2f7;
+            color: #4a5568;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 20px 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 6px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #cbd5e0;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        .input-field:focus {
+            border-color: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.15);
+        }
+
+        .btn-save {
+            width: 100%;
+            padding: 12px;
+            background-color: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+
+        .btn-save:hover {
+            background-color: #2b6cb0;
+        }
+
+        .switch-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .switch-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .alert-success {
+            display: none;
+            background-color: #c6f6d5;
+            color: #22543d;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-box">
+        <h1 class="app-title">⚙️ Paramètres du Système</h1>
+        <a href="dashboard.html" class="btn-back">← Retour</a>
+    </div>
+
+    <div id="alert-msg" class="alert-success">Modifications enregistrées avec succès !</div>
+
+    <!-- 1️⃣ إعدادات الأسعار والعمولة -->
+    <form id="tariffs-form">
+        <fieldset>
+            <legend>Tarification & Commission</legend>
+
+            <div class="form-group">
+                <label for="commission">Commission par commande (DT) :</label>
+                <input type="number" id="commission" value="1.000" step="0.100" class="input-field" required>
+            </div>
+
+            <div class="form-group">
+                <label for="deliveryPrice">Prix de livraison par défaut (DT) :</label>
+                <input type="number" id="deliveryPrice" value="4.000" step="0.500" class="input-field" required>
+            </div>
+
+            <button type="submit" class="btn-save">Enregistrer les tarifs</button>
+        </fieldset>
+    </form>
+
+    <!-- 2️⃣ إعدادات حساب الآدمين -->
+    <form id="admin-account-form">
+        <fieldset>
+            <legend>Compte Administrateur</legend>
+
+            <div class="form-group">
+                <label for="adminEmail">Email Administrateur :</label>
+                <input type="email" id="adminEmail" value="admin@hadroug.com" class="input-field" required>
+            </div>
+
+            <div class="form-group">
+                <label for="adminPassword">Nouveau mot de passe :</label>
+                <input type="password" id="adminPassword" placeholder="Laissez vide pour conserver l'actuel" class="input-field">
+            </div>
+
+            <button type="submit" class="btn-save">Mettre à jour le compte</button>
+        </fieldset>
+    </form>
+
+    <!-- 3️⃣ حالة الخدمة -->
+    <fieldset>
+        <legend>État du Service</legend>
+
+        <div class="switch-group">
+            <span class="switch-label">Service de livraison actif :</span>
+            <input type="checkbox" id="serviceStatus" checked onchange="toggleServiceStatus()" style="transform: scale(1.4); cursor: pointer;">
+        </div>
+    </fieldset>
+
+    <!-- سكريبت جلب وإدارة الإعدادات -->
+    <script>
+        function showAlert() {
+            const alert = document.getElementById('alert-msg');
+            alert.style.display = 'block';
+            setTimeout(() => { alert.style.display = 'none'; }, 3000);
+        }
+
+        // 1. جلب الإعدادات الحالية من السيرفر عند فتح الصفحة
+        async function loadSettings() {
+            try {
+                const res = await fetch('http://localhost:3000/api/admin/settings');
+                const settings = await res.json();
+
+                if (settings) {
+                    document.getElementById('commission').value = parseFloat(settings.commission_per_order || 1.000).toFixed(3);
+                    document.getElementById('deliveryPrice').value = parseFloat(settings.default_delivery_fee || 4.000).toFixed(3);
+                    document.getElementById('adminEmail').value = settings.admin_email || 'admin@hadroug.com';
+                    document.getElementById('serviceStatus').checked = settings.is_service_active == 1;
+                }
+            } catch (error) {
+                console.error("Erreur lors du chargement des paramètres:", error);
+            }
+        }
+
+        // 2. حفظ التسعير والعمولة
+        document.getElementById('tariffs-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const commission = document.getElementById('commission').value;
+            const default_delivery_fee = document.getElementById('deliveryPrice').value;
+
+            try {
+                const res = await fetch('http://localhost:3000/api/admin/settings/tariffs', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ commission, default_delivery_fee })
+                });
+                const data = await res.json();
+                if (data.success) showAlert();
+            } catch (error) {
+                console.error("Erreur lors de la sauvegarde des tarifs:", error);
+            }
+        });
+
+        // 3. حفظ بيانات حساب الأدمن
+        document.getElementById('admin-account-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
+
+            try {
+                const res = await fetch('http://localhost:3000/api/admin/settings/account', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password: password || null })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('adminPassword').value = '';
+                    showAlert();
+                }
+            } catch (error) {
+                console.error("Erreur lors de la mise à jour du compte:", error);
+            }
+        });
+
+        // 4. تغيير حالة تشغيل أو إيقاف الخدمة
+        async function toggleServiceStatus() {
+            const isActive = document.getElementById('serviceStatus').checked ? 1 : 0;
+            try {
+                const res = await fetch('http://localhost:3000/api/admin/settings/service-status', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_service_active: isActive })
+                });
+                const data = await res.json();
+                if (data.success) showAlert();
+            } catch (error) {
+                console.error("Erreur lors du changement d'état du service:", error);
+            }
+        }
+
+        loadSettings();
+    </script>
+
+</body>
+
+</html>
