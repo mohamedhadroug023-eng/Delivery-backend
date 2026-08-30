@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Commandes - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .app-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0;
+        }
+
+        .btn-back {
+            background-color: #edf2f7;
+            color: #4a5568;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            overflow-x: auto;
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 650px;
+        }
+
+        .data-table th {
+            background-color: #edf2f7;
+            color: #2d3748;
+            padding: 10px;
+            font-size: 13px;
+            text-align: left;
+            border-bottom: 2px solid #cbd5e0;
+        }
+
+        .data-table td {
+            padding: 12px 10px;
+            font-size: 13px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        .badge-pending {
+            background-color: #feebc8;
+            color: #744210;
+        }
+
+        .badge-delivering {
+            background-color: #ebf8ff;
+            color: #2b6cb0;
+        }
+
+        .badge-success {
+            background-color: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-canceled {
+            background-color: #fed7d7;
+            color: #742a2a;
+        }
+
+        .btn-action {
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-view {
+            background-color: #ebf8ff;
+            color: #3182ce;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-box">
+        <h1 class="app-title">📦 Suivi des Commandes</h1>
+        <a href="dashboard.html" class="btn-back">← Retour</a>
+    </div>
+
+    <fieldset>
+        <legend>Commandes récentes</legend>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>#ID</th>
+                    <th>Restaurant</th>
+                    <th>Chauffeur</th>
+                    <th>Adresse</th>
+                    <th>Prix</th>
+                    <th>Statut</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="orders-list">
+                <tr>
+                    <td colspan="7" style="text-align:center;">Chargement des commandes...</td>
+                </tr>
+            </tbody>
+        </table>
+    </fieldset>
+
+    <script>
+        // دالة لجلب الطلبات ديناميكياً وتحديث الواجهة
+        async function fetchOrders() {
+            try {
+                const response = await fetch('http://localhost:3000/api/admin/orders');
+                const orders = await response.json();
+
+                const tbody = document.getElementById('orders-list');
+                tbody.innerHTML = '';
+
+                if (!orders || orders.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Aucune commande trouvée</td></tr>';
+                    return;
+                }
+
+                orders.forEach(order => {
+                    let statusBadge = '';
+
+                    switch (order.status) {
+                        case 'pending':
+                            statusBadge = '<span class="badge badge-pending">⏳ En attente</span>';
+                            break;
+                        case 'accepted':
+                        case 'picking_up':
+                        case 'in_transit':
+                            statusBadge = '<span class="badge badge-delivering">🛵 En cours</span>';
+                            break;
+                        case 'completed':
+                        case 'delivered':
+                            statusBadge = '<span class="badge badge-success">✅ Livrée</span>';
+                            break;
+                        case 'canceled':
+                            statusBadge = '<span class="badge badge-canceled">❌ Annulée</span>';
+                            break;
+                        default:
+                            statusBadge = `<span class="badge badge-pending">${order.status}</span>`;
+                    }
+
+                    const driverName = order.driver_name ? order.driver_name : '<i>Non assigné</i>';
+                    const fee = parseFloat(order.delivery_fee || 0).toFixed(3);
+
+                    const row = `
+                        <tr>
+                            <td><b>#ORD-${order.id}</b></td>
+                            <td>${order.restaurant_name || '-'}</td>
+                            <td>${driverName}</td>
+                            <td>${order.delivery_address || '-'}</td>
+                            <td><b>${fee} DT</b></td>
+                            <td>${statusBadge}</td>
+                            <td>
+                                <a href="order-details.html?id=${order.id}" class="btn-action btn-view">Détails</a>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Erreur lors du chargement des commandes:", error);
+            }
+        }
+
+        // تشغيل الجلب عند التحميل والتحديث التلقائي كل 5 ثوانٍ
+        fetchOrders();
+        setInterval(fetchOrders, 5000);
+    </script>
+
+</body>
+
+</html>
