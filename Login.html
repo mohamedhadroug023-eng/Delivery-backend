@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion Admin - HADROUG DELIVERY</title>
+
+    <style>
+        /* تنسيق خلفية الصفحة */
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 90vh;
+        }
+
+        /* عنوان التطبيق والشعار */
+        .brand-box {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo-img {
+            width: 110px;
+            height: auto;
+            border-radius: 12px;
+            margin-bottom: 10px;
+        }
+
+        .app-title {
+            color: #1a202c;
+            font-size: 24px;
+            margin: 0;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        /* تنسيق الـ fieldset و الـ legend */
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 25px 20px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+            max-width: 380px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        /* تنسيق الجدول والـ inputs */
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 12px; /* مسافة بين أسطر الجدول */
+        }
+
+        td {
+            font-size: 14px;
+            color: #4a5568;
+            font-weight: 600;
+        }
+
+        .input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1.5px solid #cbd5e0;
+            border-radius: 8px;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        .input:focus {
+            border-color: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.2);
+        }
+
+        /* تنسيق الأزرار */
+        .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: none;
+            box-sizing: border-box;
+            margin-top: 5px;
+            text-align: center;
+        }
+
+        .btn-primary {
+            background-color: #3182ce;
+            color: white;
+        }
+
+        .btn-secondary {
+            background-color: #edf2f7;
+            color: #4a5568;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- الشعار والعنوان -->
+    <div class="brand-box">
+        <img src="photo1.png" alt="Logo" class="logo-img">
+        <h1 class="app-title">HADROUG DELIVERY</h1>
+    </div>
+
+    <!-- الاستمارة -->
+    <form id="adminLoginForm">
+        <fieldset>
+            <legend>Connexion Administrateur</legend>
+
+            <table>
+                <tr>
+                    <td colspan="2" style="padding-bottom: 5px;">Email administrateur :</td>
+                </tr>
+                <tr>
+                    <td colspan="2">
+                        <input type="email" id="adminEmail" placeholder="admin@hadroug.com" required class="input">
+                    </td>
+                </tr>
+
+                <tr>
+                    <td colspan="2" style="padding-top: 10px; padding-bottom: 5px;">Mot de passe :</td>
+                </tr>
+                <tr>
+                    <td colspan="2">
+                        <input type="password" id="adminPassword" placeholder="Votre mot de passe" required class="input">
+                    </td>
+                </tr>
+
+                <tr>
+                    <td colspan="2" style="text-align:center; padding-top: 20px;">
+                        <button type="submit" id="btnLogin" class="btn btn-primary">
+                            Se connecter
+                        </button>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td colspan="2" style="text-align:center;">
+                        <a href="../index.html" class="btn btn-secondary">
+                            Retour
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </fieldset>
+    </form>
+
+    <script>
+        document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
+            const btnLogin = document.getElementById('btnLogin');
+
+            btnLogin.disabled = true;
+            btnLogin.innerText = "Vérification...";
+
+            try {
+                const response = await fetch('http://localhost:3000/api/admin/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    localStorage.setItem('admin_id', result.admin_id);
+                    localStorage.setItem('admin_name', result.name);
+                    window.location.href = 'admin_dashboard.html';
+                } else {
+                    alert(result.message || "Identifiants incorrects !");
+                }
+            } catch (err) {
+                console.error("Erreur serveur:", err);
+                alert("Impossible de contacter le serveur.");
+            } finally {
+                btnLogin.disabled = false;
+                btnLogin.innerText = "Se connecter";
+            }
+        });
+    </script>
+
+</body>
+</html>
