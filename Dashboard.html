@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Admin - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .app-title {
+            text-align: center;
+            color: #1a202c;
+            font-size: 22px;
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 20px;
+        }
+
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .stats-table tr {
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .stats-table tr:last-child {
+            border-bottom: none;
+        }
+
+        .stats-table td {
+            padding: 12px 8px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .stats-table td:first-child {
+            color: #4a5568;
+        }
+
+        .stats-table td:last-child {
+            text-align: right;
+            color: #2b6cb0;
+            font-weight: bold;
+            font-size: 15px;
+        }
+
+        .menu-table {
+            width: 100%;
+            border-spacing: 10px;
+            border-collapse: separate;
+        }
+
+        .menu-table td {
+            width: 50%;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 14px 8px;
+            background-color: #edf2f7;
+            color: #2d3748;
+            text-align: center;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 14px;
+            border-radius: 12px;
+            box-sizing: border-box;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s ease;
+        }
+
+        .btn:active {
+            background-color: #cbd5e0;
+            transform: scale(0.98);
+        }
+
+        .btn-logout {
+            background-color: #fff5f5;
+            color: #e53e3e;
+            border-color: #fed7d7;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1 class="app-title">
+        Dashboard Administrateur
+    </h1>
+
+    <!-- قسم الإحصائيات العامة -->
+    <fieldset>
+        <legend>Statistiques générales</legend>
+
+        <table class="stats-table">
+            <tr>
+                <td>🏪 Restaurants :</td>
+                <td id="stat-restaurants">...</td>
+            </tr>
+            <tr>
+                <td>🛵 Chauffeurs :</td>
+                <td id="stat-drivers">...</td>
+            </tr>
+            <tr>
+                <td>🟢 Chauffeurs en ligne :</td>
+                <td id="stat-online-drivers">...</td>
+            </tr>
+            <tr>
+                <td>📦 Commandes aujourd'hui :</td>
+                <td id="stat-today-orders">...</td>
+            </tr>
+            <tr>
+                <td>💰 Revenus aujourd'hui :</td>
+                <td id="stat-today-revenue">...</td>
+            </tr>
+        </table>
+    </fieldset>
+
+    <!-- قسم إدارة النظام -->
+    <fieldset>
+        <legend>Gestion</legend>
+
+        <table class="menu-table">
+            <tr>
+                <td>
+                    <a href="restaurants.html" class="btn">
+                        🏪 Restaurants
+                    </a>
+                </td>
+                <td>
+                    <a href="drivers.html" class="btn">
+                        🛵 Chauffeurs
+                    </a>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <a href="orders.html" class="btn">
+                        📦 Commandes
+                    </a>
+                </td>
+                <td>
+                    <a href="finance.html" class="btn">
+                        📄 Factures
+                    </a>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    <a href="settings.html" class="btn">
+                        ⚙️ Paramètres
+                    </a>
+                </td>
+                <td>
+                    <a href="login.html" class="btn btn-logout">
+                        🚪 Déconnexion
+                    </a>
+                </td>
+            </tr>
+        </table>
+    </fieldset>
+
+    <!-- سكريبت جلب الإحصائيات المباشرة -->
+    <script>
+        async function fetchDashboardStats() {
+            try {
+                const response = await fetch('http://localhost:3000/api/admin/dashboard-stats');
+                const stats = await response.json();
+
+                document.getElementById('stat-restaurants').innerText = stats.total_restaurants || 0;
+                document.getElementById('stat-drivers').innerText = stats.total_drivers || 0;
+                document.getElementById('stat-online-drivers').innerText = stats.online_drivers || 0;
+                document.getElementById('stat-today-orders').innerText = stats.today_orders || 0;
+                document.getElementById('stat-today-revenue').innerText = `${parseFloat(stats.today_revenue || 0).toFixed(3)} DT`;
+            } catch (error) {
+                console.error("Erreur lors du chargement des statistiques:", error);
+            }
+        }
+
+        // تشغيل دالة الجلب فور فتح الصفحة
+        fetchDashboardStats();
+
+        // تحديث البيانات تلقائياً كل 5 ثوانٍ لتبقى حية ومباشرة
+        setInterval(fetchDashboardStats, 5000);
+    </script>
+
+</body>
+
+</html>
