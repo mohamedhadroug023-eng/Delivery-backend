@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espace Chauffeur - HADROUG DELIVERY</title>
+
+    <!-- Leaflet CSS للخريطة -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+            padding-bottom: 90px;
+        }
+
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #ffffff;
+            padding: 10px 16px;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+        }
+
+        .brand-img {
+            height: 40px;
+            width: auto;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+
+        .status-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-text {
+            font-size: 12px;
+            font-weight: bold;
+            color: #2f855a;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 58px;
+            height: 28px;
+        }
+
+        .switch input { opacity: 0; width: 0; height: 0; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #e53e3e;
+            transition: .3s;
+            border-radius: 30px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px; width: 20px;
+            left: 4px; bottom: 4px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        input:checked + .slider { background-color: #38a169; }
+        input:checked + .slider:before { transform: translateX(30px); }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card {
+            background-color: #ffffff;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+            border: 1px solid #e2e8f0;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #718096;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .stat-value { font-size: 20px; font-weight: 800; }
+        .text-green { color: #2f855a; }
+        .text-blue { color: #2b6cb0; }
+
+        /* منطقة الخريطة والطلب النشط */
+        .active-order-card {
+            background: #ffffff;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .card-header {
+            font-size: 14px;
+            font-weight: bold;
+            color: #2b6cb0;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #map {
+            height: 200px;
+            width: 100%;
+            border-radius: 12px;
+            margin-bottom: 12px;
+            z-index: 1;
+        }
+
+        .code-box {
+            background-color: #ebf8ff;
+            border: 1.5px dashed #3182ce;
+            color: #2b6cb0;
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        /* نافذة الطلب */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.75);
+            display: flex; justify-content: center; align-items: center;
+            padding: 20px; z-index: 999; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background-color: #ffffff; width: 100%; max-width: 380px;
+            border-radius: 20px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center; position: relative; overflow: hidden;
+        }
+        .timer-bar-container { width: 100%; height: 6px; background-color: #edf2f7; position: absolute; top: 0; left: 0; }
+        .timer-bar { height: 100%; width: 100%; background-color: #e53e3e; transition: width 1s linear; }
+        .alert-header { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; margin-bottom: 10px; }
+        .badge-alert { background-color: #feebc8; color: #744210; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; }
+        .timer-countdown { font-size: 18px; font-weight: bold; color: #e53e3e; }
+        .order-price { font-size: 28px; font-weight: 800; color: #2f855a; margin: 5px 0 12px 0; }
+        .info-box { background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; text-align: left; margin-bottom: 15px; }
+        .info-label { font-size: 11px; color: #718096; text-transform: uppercase; font-weight: bold; display: block; }
+        .info-value { font-size: 13px; font-weight: bold; color: #2d3748; margin-bottom: 6px; }
+        .actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .btn { padding: 12px; border: none; border-radius: 12px; font-size: 14px; font-weight: bold; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
+        .btn-accept { background-color: #38a169; color: white; width: 100%; }
+        .btn-reject { background-color: #edf2f7; color: #e53e3e; }
+        .btn-gps { background-color: #3182ce; color: white; margin-top: 8px; width: 100%; box-sizing: border-box; }
+
+        .bottom-nav {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background-color: #ffffff; display: flex; justify-content: space-around;
+            padding: 10px 0; border-top: 1px solid #e2e8f0; z-index: 100;
+        }
+        .nav-item {
+            display: flex; flex-direction: column; align-items: center;
+            color: #718096; text-decoration: none; font-size: 11px; font-weight: bold;
+        }
+        .nav-item.active { color: #3182ce; }
+        .nav-icon { font-size: 20px; margin-bottom: 2px; }
+    </style>
+</head>
+
+<body>
+
+    <!-- الهيدر -->
+    <div class="header-bar">
+        <img src="photo1.png" alt="HADROUG DELIVERY" class="brand-img">
+
+        <div class="status-container">
+            <span class="status-text" id="statusLabel">En service</span>
+            <label class="switch">
+                <input type="checkbox" id="statusToggle" checked onchange="toggleOnlineStatus()">
+                <span class="slider"></span>
+            </label>
+        </div>
+    </div>
+
+    <!-- الإحصائيات -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">💰 Gain Aujourd'hui</div>
+            <div class="stat-value text-green" id="todayEarnings">0.000 DT</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">📦 Livraisons</div>
+            <div class="stat-value text-blue" id="todayDeliveries">0</div>
+        </div>
+    </div>
+
+    <!-- بطاقة الخريطة والطلب النشط -->
+    <div class="active-order-card">
+        <div class="card-header">
+            <span>🗺️ Itinéraire & Commande</span>
+            <span id="orderStatusBadge" style="font-size: 11px; background: #e2e8f0; padding: 3px 8px; border-radius: 10px;">En attente</span>
+        </div>
+
+        <div id="map"></div>
+
+        <div id="activeOrderDetails">
+            <p style="text-align: center; color: #718096; font-size: 13px;"><i>Aucune commande en cours pour le moment.</i></p>
+        </div>
+    </div>
+
+    <!-- زر محاكاة طلب جديد للاختبار -->
+    <div style="text-align: center; margin-top: 15px;">
+        <button onclick="triggerMockOrder()" class="btn btn-accept" style="max-width: 320px;">
+            🔔 محاكاة وصول طلب جديد
+        </button>
+    </div>
+
+    <!-- نافذة المنبه والطلب المنبثقة -->
+    <div class="modal-overlay" id="orderModal">
+        <div class="modal-content">
+            <div class="timer-bar-container"><div class="timer-bar" id="timerBar"></div></div>
+            <div class="alert-header">
+                <span class="badge-alert">🔔 Nouvelle Commande !</span>
+                <span class="timer-countdown" id="timerText">12s</span>
+            </div>
+            
+            <div class="order-price" id="modalDeliveryFee">0.000 DT</div>
+            <div style="font-size: 12px; color: #718096; margin-top: -10px; margin-bottom: 10px; font-weight: bold;">(Votre Commission / Votre Gain)</div>
+
+            <div class="info-box">
+                <span class="info-label">🏪 Restaurant :</span>
+                <div class="info-value" id="modalRestaurant">Plan B - Sousse</div>
+                
+                <span class="info-label">📍 Client / Adresse :</span>
+                <div class="info-value" id="modalAddress" style="margin-bottom:0;">Cité Khzema Est</div>
+            </div>
+
+            <div class="actions-grid">
+                <button class="btn btn-accept" onclick="acceptCurrentOrder()">Accepter ✅</button>
+                <button class="btn btn-reject" onclick="closeOrderModal()">Refuser ❌</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- شريط التصفح السفلي -->
+    <div class="bottom-nav">
+        <a href="driver-dashboard.html" class="nav-item active"><span class="nav-icon">🏠</span><span>Accueil</span></a>
+        <a href="driver-invoices.html" class="nav-item"><span class="nav-icon">📄</span><span>Factures</span></a>
+        <a href="driver-setting.html" class="nav-item"><span class="nav-icon">⚙️</span><span>Paramètres</span></a>
+    </div>
+
+    <!-- Leaflet JS للخريطة -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const DRIVER_ID = 1;
+        let audioCtx = null, beepInterval = null, timeLeft = 12, countdownTimer = null;
+        let map, restaurantMarker, deliveryMarker, activeIncomingOrder = null;
+
+        // 1. تهيئة الخريطة (سوسة كمركز افتراضي)
+        function initMap() {
+            map = L.map('map').setView([35.8256, 10.6369], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+        }
+
+        // 2. الصوت المكرر للتنبيه
+        function playRingtone() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            beepInterval = setInterval(() => {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+                osc.type = 'sine'; osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+            }, 500);
+        }
+        function stopRingtone() { if (beepInterval) clearInterval(beepInterval); }
+
+        // 3. جلب بيانات اللوحة والطلبات من السيرفر
+        async function fetchDashboardData() {
+            try {
+                const res = await fetch(`http://localhost:3000/api/driver/${DRIVER_ID}/orders`);
+                const data = await res.json();
+
+                document.getElementById('todayEarnings').innerText = `${parseFloat(data.today_earnings || 0).toFixed(3)} DT`;
+                
+                // تحديث الطلب الحالي إن وجد
+                if (data.current_order) {
+                    renderActiveOrder(data.current_order);
+                }
+            } catch (err) {
+                console.error("Erreur Dashboard:", err);
+            }
+        }
+
+        // 4. عرض تفاصيل الطلب النشط بعد القبول
+        function renderActiveOrder(order) {
+            const container = document.getElementById('activeOrderDetails');
+            document.getElementById('orderStatusBadge').innerText = order.status.toUpperCase();
+
+            // رسم المعالم على الخريطة (إحداثيات افتراضية لسوسة)
+            const restoLat = order.resto_lat || 35.8288;
+            const restoLng = order.resto_lng || 10.6406;
+            const clientLat = order.client_lat || 35.8340;
+            const clientLng = order.client_lng || 10.6270;
+
+            if (restaurantMarker) map.removeLayer(restaurantMarker);
+            if (deliveryMarker) map.removeLayer(deliveryMarker);
+
+            restaurantMarker = L.marker([restoLat, restoLng]).addTo(map).bindPopup(`<b>المطعم:</b> ${order.restaurant_name}`);
+            deliveryMarker = L.marker([clientLat, clientLng]).addTo(map).bindPopup(`<b>التوصيل:</b> ${order.delivery_address}`);
+
+            map.fitBounds(L.latLngBounds([ [restoLat, restoLng], [clientLat, clientLng] ]), { padding: [30, 30] });
+
+            let nextStatus = '', btnText = '';
+            if(order.status === 'accepted') { nextStatus = 'picking_up'; btnText = 'وصلت للمطعم 🏪'; }
+            else if(order.status === 'picking_up') { nextStatus = 'in_transit'; btnText = 'استلمت الطلب 🛵'; }
+            else if(order.status === 'in_transit') { nextStatus = 'completed'; btnText = 'تم التوصيل للعميل ✅'; }
+
+            container.innerHTML = `
+                <div class="code-box">🔑 Code Confirmation: ${order.confirmation_code || 'HD-' + order.id}</div>
+                <div style="font-size: 13px; line-height: 1.6;">
+                    <b>#ORD-${order.id}</b><br>
+                    🏪 <b>Resto:</b> ${order.restaurant_name}<br>
+                    📍 <b>Adresse:</b> ${order.delivery_address}<br>
+                    💰 <b>Votre Commission:</b> <span class="text-green">${parseFloat(order.delivery_fee).toFixed(3)} DT</span>
+                </div>
+                <a href="https://www.google.com/maps/dir/?api=1&destination=${clientLat},${clientLng}" target="_blank" class="btn btn-gps">
+                    🧭 التوجيه عبر GPS
+                </a>
+                <button onclick="updateOrderStatus(${order.id}, '${nextStatus}')" class="btn btn-accept" style="margin-top:8px;">
+                    ${btnText}
+                </button>
+            `;
+        }
+
+        // 5. محاكاة/استقبال طلب جديد
+        function triggerMockOrder() {
+            if (!document.getElementById('statusToggle').checked) {
+                alert("أنت حالياً في حالة الراحة (En repos)."); return;
+            }
+            activeIncomingOrder = {
+                id: Math.floor(1000 + Math.random() * 9000),
+                restaurant_name: "Plan B - Sousse Corniche",
+                delivery_address: "Cité Khzema Est, Sousse",
+                delivery_fee: 4.000,
+                confirmation_code: "HD-" + Math.floor(100 + Math.random() * 900)
+            };
+
+            document.getElementById('modalRestaurant').innerText = activeIncomingOrder.restaurant_name;
+            document.getElementById('modalAddress').innerText = activeIncomingOrder.delivery_address;
+            document.getElementById('modalDeliveryFee').innerText = parseFloat(activeIncomingOrder.delivery_fee).toFixed(3) + " DT";
+
+            timeLeft = 12; 
+            document.getElementById('timerText').textContent = timeLeft + "s";
+            document.getElementById('timerBar').style.width = "100%";
+            document.getElementById('orderModal').classList.add('active');
+            
+            playRingtone();
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timerText').textContent = timeLeft + "s";
+                document.getElementById('timerBar').style.width = (timeLeft / 12 * 100) + "%";
+                if (timeLeft <= 0) closeOrderModal();
+            }, 1000);
+        }
+
+        // 6. قبول الطلب
+        async function acceptCurrentOrder() {
+            closeOrderModal();
+            if (activeIncomingOrder) {
+                activeIncomingOrder.status = 'accepted';
+                renderActiveOrder(activeIncomingOrder);
+                alert(`تم قبول الطلب بنجاح!\nكود التأكيد الخاص بك هو: ${activeIncomingOrder.confirmation_code}`);
+            }
+        }
+
+        function closeOrderModal() { 
+            stopRingtone(); 
+            clearInterval(countdownTimer); 
+            document.getElementById('orderModal').classList.remove('active'); 
+        }
+
+        function toggleOnlineStatus() {
+            const toggle = document.getElementById('statusToggle'), label = document.getElementById('statusLabel');
+            label.textContent = toggle.checked ? "En service" : "En repos";
+            label.style.color = toggle.checked ? "#2f855a" : "#c53030";
+        }
+
+        async function updateOrderStatus(orderId, newStatus) {
+            try {
+                await fetch(`http://localhost:3000/api/driver/orders/${orderId}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                fetchDashboardData();
+            } catch (err) { console.error(err); }
+        }
+
+        window.onload = () => {
+            initMap();
+            fetchDashboardData();
+        };
+    </script>
+</body>
+</html>
