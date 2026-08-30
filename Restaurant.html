@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Restaurants - HADROUG DELIVERY</title>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            color: #2d3748;
+        }
+
+        .header-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .app-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1a202c;
+            margin: 0;
+        }
+
+        .btn-back {
+            background-color: #edf2f7;
+            color: #4a5568;
+            padding: 8px 14px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        fieldset {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            overflow-x: auto;
+        }
+
+        legend {
+            background-color: #2b6cb0;
+            color: white;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+
+        .data-table th {
+            background-color: #edf2f7;
+            color: #2d3748;
+            padding: 10px;
+            font-size: 13px;
+            text-align: left;
+            border-bottom: 2px solid #cbd5e0;
+        }
+
+        .data-table td {
+            padding: 12px 10px;
+            font-size: 13px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            display: inline-block;
+        }
+
+        .badge-active {
+            background-color: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-suspended {
+            background-color: #fed7d7;
+            color: #742a2a;
+        }
+
+        .btn-action {
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 4px;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-view {
+            background-color: #ebf8ff;
+            color: #3182ce;
+        }
+
+        .btn-suspend {
+            background-color: #fff5f5;
+            color: #e53e3e;
+        }
+
+        .btn-activate {
+            background-color: #f0fff4;
+            color: #38a169;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-box">
+        <h1 class="app-title">🏪 Liste des Restaurants</h1>
+        <a href="dashboard.html" class="btn-back">← Retour</a>
+    </div>
+
+    <fieldset>
+        <legend>Restaurants enregistrés</legend>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Nom du restaurant</th>
+                    <th>Responsable</th>
+                    <th>Téléphone</th>
+                    <th>Statut</th>
+                    <th>Commandes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="restaurants-list">
+                <tr>
+                    <td colspan="6" style="text-align:center;">Chargement des données...</td>
+                </tr>
+            </tbody>
+        </table>
+    </fieldset>
+
+    <script>
+        // دالة لجلب المطاعم وتحديث الجدول حيًا
+        async function fetchRestaurants() {
+            try {
+                const response = await fetch('http://localhost:3000/api/admin/restaurants');
+                const restaurants = await response.json();
+
+                const tbody = document.getElementById('restaurants-list');
+                tbody.innerHTML = '';
+
+                if (!restaurants || restaurants.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Aucun restaurant trouvé</td></tr>';
+                    return;
+                }
+
+                restaurants.forEach(resto => {
+                    const isActive = resto.status === 'active';
+                    
+                    const row = `
+                        <tr>
+                            <td><b>${resto.restaurant_name}</b></td>
+                            <td>${resto.manager_name || '-'}</td>
+                            <td>${resto.phone}</td>
+                            <td>
+                                <span class="badge ${isActive ? 'badge-active' : 'badge-suspended'}">
+                                    ${isActive ? '🟢 Actif' : '🔴 Suspendu'}
+                                </span>
+                            </td>
+                            <td><b>${resto.total_orders || 0}</b></td>
+                            <td>
+                                <a href="restaurant-details.html?id=${resto.id}" class="btn-action btn-view">Voir</a>
+                                <button onclick="toggleStatus(${resto.id}, '${resto.status}')" 
+                                        class="btn-action ${isActive ? 'btn-suspend' : 'btn-activate'}">
+                                    ${isActive ? 'Suspendre' : 'Activer'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            } catch (error) {
+                console.error("Erreur lors du chargement des restaurants:", error);
+            }
+        }
+
+        // دالة لتغيير حالة المطعم (تفعيل / حظر)
+        async function toggleStatus(id, currentStatus) {
+            const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+            try {
+                const res = await fetch(`http://localhost:3000/api/admin/restaurants/${id}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    fetchRestaurants(); // إعادة جلب البيانات فور التحديث
+                } else {
+                    alert("Erreur lors de la mise à jour du statut.");
+                }
+            } catch (error) {
+                console.error("Erreur serveur:", error);
+            }
+        }
+
+        // تشغيل الجلب عند التحميل والتحديث الحقيقي كل 5 ثوانٍ
+        fetchRestaurants();
+        setInterval(fetchRestaurants, 5000);
+    </script>
+
+</body>
+
+</html>
