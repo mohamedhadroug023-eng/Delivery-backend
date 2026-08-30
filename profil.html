@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profil Restaurant - HADROUG DELIVERY</title>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f4f6f9;
+            color: #333;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #2E7D32;
+            overflow-x: hidden;
+            transition: 0.3s;
+            padding-top: 60px;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #1B5E20;
+            padding-left: 30px;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+        }
+
+        /* Header Styles */
+        .header {
+            background-color: #ffffff;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .menu-btn {
+            font-size: 26px;
+            cursor: pointer;
+            color: #2E7D32;
+            margin-right: 15px;
+        }
+
+        .header-logo {
+            height: 38px;
+            width: auto;
+            margin-right: 12px;
+        }
+
+        .app-title {
+            font-size: 18px;
+            color: #2E7D32;
+            font-weight: bold;
+        }
+
+        /* Container & Card */
+        .container {
+            padding: 20px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .form-card {
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            margin-top: 10px;
+        }
+
+        .card-header {
+            text-align: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e8f5e9;
+        }
+
+        .form-title {
+            font-size: 20px;
+            color: #2E7D32;
+            font-weight: 700;
+        }
+
+        /* Form Grid Layout */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 15px;
+        }
+
+        .form-group.full-width {
+            grid-column: span 2;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 6px;
+        }
+
+        .input {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            background-color: #fafafa;
+            transition: all 0.3s ease;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: #2E7D32;
+            background-color: #fff;
+            box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.15);
+        }
+
+        .btn-submit {
+            grid-column: span 2;
+            width: 100%;
+            padding: 14px;
+            background-color: #2E7D32;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-submit:hover {
+            background-color: #1B5E20;
+        }
+
+        @media (max-width: 600px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            .form-group.full-width, .btn-submit {
+                grid-column: span 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar Menu -->
+    <div id="menu" class="sidebar">
+        <span class="close" onclick="closeMenu()">&times;</span>
+        <a href="restaurant_dashboard.html">🏠 Dashboard</a>
+        <a href="request_driver.html">🛵 Demander un chauffeur</a>
+        <a href="ordres.html">📋 Commandes</a>
+        <a href="profil.html">👤 Profil</a>
+        <a href="factures.com.html">💳 Factures</a>
+        <a href="parametres.html">⚙️ Paramètres</a>
+        <a href="login.html" onclick="localStorage.clear();" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1);">🚪 Déconnexion</a>
+    </div>
+
+    <!-- Top Header -->
+    <div class="header">
+        <span class="menu-btn" onclick="openMenu()">☰</span>
+        <img src="photo1.png" alt="Hadroug Delivery Logo" class="header-logo">
+        <h1 class="app-title">HADROUG DELIVERY</h1>
+    </div>
+
+    <!-- Main Profile Form -->
+    <div class="container">
+        <div class="form-card">
+            
+            <div class="card-header">
+                <h2 class="form-title">👤 Profil du Restaurant</h2>
+            </div>
+
+            <form id="profileForm" class="form-grid">
+
+                <div class="form-group full-width">
+                    <label>Logo du restaurant :</label>
+                    <input type="file" id="logoFile" accept="image/*" class="input">
+                </div>
+
+                <div class="form-group">
+                    <label>Nom du restaurant :</label>
+                    <input type="text" id="restaurantName" placeholder="Chargement..." class="input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Nom du responsable :</label>
+                    <input type="text" id="managerName" placeholder="Chargement..." class="input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Téléphone :</label>
+                    <input type="tel" id="phone" placeholder="Chargement..." class="input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Email :</label>
+                    <input type="email" id="email" placeholder="Chargement..." class="input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Adresse :</label>
+                    <input type="text" id="address" placeholder="Chargement..." class="input" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Type du restaurant :</label>
+                    <select id="restaurantType" class="input">
+                        <option value="Pizza">Pizza</option>
+                        <option value="Mlewi / Chapati">Mlewi / Chapati</option>
+                        <option value="Salon de thé">Salon de thé</option>
+                        <option value="Restaurant">Restaurant</option>
+                    </select>
+                </div>
+
+                <div class="form-group full-width">
+                    <label>Localisation (Position GPS) :</label>
+                    <input type="text" id="gpsLocation" placeholder="ex: 35.8256, 10.63699" class="input">
+                </div>
+
+                <div class="form-group">
+                    <label>Heure d'ouverture :</label>
+                    <input type="time" id="openTime" class="input">
+                </div>
+
+                <div class="form-group">
+                    <label>Heure de fermeture :</label>
+                    <input type="time" id="closeTime" class="input">
+                </div>
+
+                <button type="submit" id="btnSubmit" class="btn-submit">
+                    Enregistrer les modifications 💾
+                </button>
+
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openMenu() {
+            document.getElementById("menu").style.width = "250px";
+        }
+
+        function closeMenu() {
+            document.getElementById("menu").style.width = "0";
+        }
+
+        const restaurantId = localStorage.getItem('restaurant_id') || 1;
+
+        // 1. جلب البيانات من السيرفر ملء المدخلات
+        async function loadProfileData() {
+            try {
+                const response = await fetch(`http://localhost:3000/api/restaurant/profile/${restaurantId}`);
+                if (!response.ok) throw new Error("Erreur lors du chargement");
+                
+                const data = await response.json();
+
+                document.getElementById('restaurantName').value = data.name || '';
+                document.getElementById('managerName').value = data.manager_name || '';
+                document.getElementById('phone').value = data.phone || '';
+                document.getElementById('email').value = data.email || '';
+                document.getElementById('address').value = data.address || '';
+                document.getElementById('restaurantType').value = data.type || 'Restaurant';
+                document.getElementById('gpsLocation').value = data.gps_location || '';
+                document.getElementById('openTime').value = data.open_time || '08:00';
+                document.getElementById('closeTime').value = data.close_time || '00:00';
+            } catch (err) {
+                console.error("Erreur serveur:", err);
+            }
+        }
+
+        // 2. إرسال التعديلات للحفظ في قاعدة البيانات
+        document.getElementById('profileForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const btnSubmit = document.getElementById('btnSubmit');
+            btnSubmit.disabled = true;
+            btnSubmit.innerText = "Enregistrement en cours...";
+
+            const updatedData = {
+                name: document.getElementById('restaurantName').value,
+                managerName: document.getElementById('managerName').value,
+                phone: document.getElementById('phone').value,
+                email: document.getElementById('email').value,
+                address: document.getElementById('address').value,
+                type: document.getElementById('restaurantType').value,
+                gpsLocation: document.getElementById('gpsLocation').value,
+                openTime: document.getElementById('openTime').value,
+                closeTime: document.getElementById('closeTime').value
+            };
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/restaurant/profile/update/${restaurantId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert("Modifications enregistrées avec succès !");
+                } else {
+                    alert("Erreur lors de la mise à jour.");
+                }
+            } catch (err) {
+                console.error("Erreur serveur:", err);
+                alert("Impossible de contacter le serveur.");
+            } finally {
+                btnSubmit.disabled = false;
+                btnSubmit.innerText = "Enregistrer les modifications 💾";
+            }
+        });
+
+        loadProfileData();
+    </script>
+
+</body>
+</html>
