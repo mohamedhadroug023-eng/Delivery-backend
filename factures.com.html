@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Factures - HADROUG DELIVERY</title>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f4f6f9;
+            color: #333;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #2E7D32;
+            overflow-x: hidden;
+            transition: 0.3s;
+            padding-top: 60px;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #1B5E20;
+            padding-left: 30px;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+        }
+
+        /* Header Styles */
+        .header {
+            background-color: #ffffff;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .menu-btn {
+            font-size: 26px;
+            cursor: pointer;
+            color: #2E7D32;
+            margin-right: 15px;
+        }
+
+        .header-logo {
+            height: 38px;
+            width: auto;
+            margin-right: 12px;
+        }
+
+        .app-title {
+            font-size: 18px;
+            color: #2E7D32;
+            font-weight: bold;
+        }
+
+        /* Container & Cards */
+        .container {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .page-title {
+            font-size: 20px;
+            color: #2E7D32;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .section-card {
+            background: #ffffff;
+            padding: 22px;
+            border-radius: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+            margin-bottom: 20px;
+        }
+
+        .section-card h3 {
+            font-size: 16px;
+            color: #2E7D32;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 2px solid #e8f5e9;
+            padding-bottom: 10px;
+        }
+
+        /* Invoice Data Rows */
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px dashed #eee;
+            font-size: 14px;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .info-value {
+            font-weight: 700;
+            color: #333;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .badge-pending {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .badge-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        /* History Grid */
+        .history-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .history-card {
+            background: #f9fbf9;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .btn-pdf {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #2E7D32;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            transition: background 0.3s;
+            margin-top: 10px;
+        }
+
+        .btn-pdf:hover {
+            background-color: #1B5E20;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar Menu -->
+    <div id="menu" class="sidebar">
+        <span class="close" onclick="closeMenu()">&times;</span>
+        <a href="restaurant_dashboard.html">🏠 Dashboard</a>
+        <a href="request_driver.html">🛵 Demander un chauffeur</a>
+        <a href="ordres.html">📋 Commandes</a>
+        <a href="profil.html">👤 Profil</a>
+        <a href="factures.html">💳 Factures</a>
+        <a href="parametres.html">⚙️ Paramètres</a>
+        <a href="login.html" onclick="localStorage.clear();" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1);">🚪 Déconnexion</a>
+    </div>
+
+    <!-- Top Header -->
+    <div class="header">
+        <span class="menu-btn" onclick="openMenu()">☰</span>
+        <img src="photo1.png" alt="Hadroug Delivery Logo" class="header-logo">
+        <h1 class="app-title">HADROUG DELIVERY</h1>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <h2 class="page-title">💳 Factures et Paiements</h2>
+
+        <!-- Facture Actuelle -->
+        <div class="section-card">
+            <h3>💳 Facture actuelle</h3>
+            
+            <div class="info-row">
+                <span class="info-label">Période :</span>
+                <span class="info-value" id="currentPeriod">-- / -- / ---- - -- / -- / ----</span>
+            </div>
+            
+            <div class="info-row">
+                <span class="info-label">Nombre de commandes :</span>
+                <span class="info-value" id="ordersCount">--</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">Commission application (1 DT / commande) :</span>
+                <span class="info-value" id="commissionAmount">-- DT</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">Total à payer :</span>
+                <span class="info-value" id="totalToPay" style="color: #2E7D32; font-size: 18px;">-- DT</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">Statut :</span>
+                <span class="status-badge badge-pending" id="paymentStatus">⏳ En attente</span>
+            </div>
+
+            <button class="btn-pdf" onclick="downloadPDF()">
+                📄 Télécharger facture PDF
+            </button>
+        </div>
+
+        <!-- Compte de Paiement -->
+        <div class="section-card">
+            <h3>🏦 Compte de paiement</h3>
+            
+            <div class="info-row">
+                <span class="info-label">Banque :</span>
+                <span class="info-value" id="bankName">--</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">RIB :</span>
+                <span class="info-value" id="bankRib">--</span>
+            </div>
+
+            <div class="info-row">
+                <span class="info-label">Vérification :</span>
+                <span class="status-badge badge-success" id="bankVerification">✅ Confirmé</span>
+            </div>
+        </div>
+
+        <!-- Historique des Factures -->
+        <div class="section-card">
+            <h3>📅 Historique des factures</h3>
+            
+            <div class="history-grid" id="invoicesHistory">
+                <div style="text-align: center; color: #888; grid-column: 1 / -1;">Chargement de l'historique...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function openMenu() {
+            document.getElementById("menu").style.width = "250px";
+        }
+
+        function closeMenu() {
+            document.getElementById("menu").style.width = "0";
+        }
+
+        const restaurantId = localStorage.getItem('restaurant_id') || 1;
+
+        async function fetchInvoicesData() {
+            try {
+                const response = await fetch(`http://localhost:3000/api/restaurant/invoices/${restaurantId}`);
+                if (!response.ok) throw new Error("Erreur serveur");
+
+                const data = await response.json();
+
+                // 1. الفاتورة الحالية
+                if (data.currentInvoice) {
+                    document.getElementById('currentPeriod').innerText = data.currentInvoice.period;
+                    document.getElementById('ordersCount').innerText = data.currentInvoice.ordersCount;
+                    document.getElementById('commissionAmount').innerText = `${data.currentInvoice.commission} DT`;
+                    document.getElementById('totalToPay').innerText = `${data.currentInvoice.total} DT`;
+                    
+                    const statusElem = document.getElementById('paymentStatus');
+                    if (data.currentInvoice.status === 'paid') {
+                        statusElem.className = 'status-badge badge-success';
+                        statusElem.innerText = '✅ Payée';
+                    } else {
+                        statusElem.className = 'status-badge badge-pending';
+                        statusElem.innerText = '⏳ En attente';
+                    }
+                }
+
+                // 2. الحساب البنكي
+                if (data.bankInfo) {
+                    document.getElementById('bankName').innerText = data.bankInfo.bankName || 'Non défini';
+                    document.getElementById('bankRib').innerText = data.bankInfo.rib || 'Non défini';
+                }
+
+                // 3. سجل الفواتير السابقة
+                const historyGrid = document.getElementById('invoicesHistory');
+                historyGrid.innerHTML = '';
+
+                if (data.history && data.history.length > 0) {
+                    data.history.forEach(item => {
+                        const card = document.createElement('div');
+                        card.className = 'history-card';
+                        card.innerHTML = `
+                            <strong style="color: #333;">${item.weekName}</strong>
+                            <span style="font-size: 14px; color: #555;">Montant : <strong>${item.amount} DT</strong></span>
+                            <span class="status-badge badge-success" style="width: fit-content;">✅ Payée</span>
+                        `;
+                        historyGrid.appendChild(card);
+                    });
+                } else {
+                    historyGrid.innerHTML = '<div style="text-align: center; color: #888; grid-column: 1 / -1;">Aucun historique de facture.</div>';
+                }
+
+            } catch (err) {
+                console.error("Erreur de chargement:", err);
+            }
+        }
+
+        function downloadPDF() {
+            window.open(`http://localhost:3000/api/restaurant/invoices/pdf/${restaurantId}`, '_blank');
+        }
+
+        fetchInvoicesData();
+    </script>
+
+</body>
+</html>
