@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commandes - HADROUG DELIVERY</title>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f4f6f9;
+            color: #333;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            height: 100%;
+            width: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #2E7D32;
+            overflow-x: hidden;
+            transition: 0.3s;
+            padding-top: 60px;
+            z-index: 1000;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        }
+
+        .sidebar a {
+            display: block;
+            color: white;
+            padding: 15px 25px;
+            text-decoration: none;
+            font-size: 16px;
+            transition: 0.2s;
+        }
+
+        .sidebar a:hover {
+            background-color: #1B5E20;
+            padding-left: 30px;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+        }
+
+        /* Header Styles */
+        .header {
+            background-color: #ffffff;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .menu-btn {
+            font-size: 26px;
+            cursor: pointer;
+            color: #2E7D32;
+            margin-right: 15px;
+        }
+
+        .header-logo {
+            height: 38px;
+            width: auto;
+            margin-right: 12px;
+        }
+
+        .app-title {
+            font-size: 18px;
+            color: #2E7D32;
+            font-weight: bold;
+        }
+
+        /* Container */
+        .container {
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .page-title {
+            font-size: 20px;
+            color: #2E7D32;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        /* Accordion Header */
+        .accordion-header {
+            background: #ffffff;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            font-size: 16px;
+            font-weight: 700;
+            color: #2E7D32;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .accordion-header:hover {
+            background-color: #f0f7f0;
+        }
+
+        /* Orders List Grid */
+        .orders-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .order-card {
+            background: white;
+            padding: 18px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            border-left: 5px solid #2E7D32;
+        }
+
+        .order-card.pending {
+            border-left-color: #ff9800;
+        }
+
+        .order-card.completed {
+            border-left-color: #4caf50;
+        }
+
+        .order-id {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .order-info {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .badge-orange {
+            background-color: #fff3e0;
+            color: #ef6c00;
+        }
+
+        .badge-green {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .no-data {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+            padding: 15px 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar -->
+    <div id="menu" class="sidebar">
+        <span class="close" onclick="closeMenu()">&times;</span>
+        <a href="restaurant_dashboard.html">🏠 Dashboard</a>
+        <a href="request_driver.html">🛵 Demander un chauffeur</a>
+        <a href="ordres.html">📋 Commandes</a>
+        <a href="profil.html">👤 Profil</a>
+        <a href="factures.com.html">💳 Factures</a>
+        <a href="parametres.html">⚙️ Paramètres</a>
+        <a href="restaurant_login.html" onclick="localStorage.clear();" style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.1);">🚪 Déconnexion</a>
+    </div>
+
+    <!-- Top Header -->
+    <div class="header">
+        <span class="menu-btn" onclick="openMenu()">☰</span>
+        <img src="photo1.png" alt="Hadroug Delivery Logo" class="header-logo">
+        <h1 class="app-title">HADROUG DELIVERY</h1>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <h2 class="page-title">📋 Gestion des Commandes</h2>
+
+        <!-- Commandes en cours Header -->
+        <div class="accordion-header" onclick="toggleSection('current', 'icon1')">
+            <span>🛵 Commandes en cours</span>
+            <span id="icon1">▼</span>
+        </div>
+
+        <div id="current" class="orders-list">
+            <div class="no-data">Chargement des commandes en cours...</div>
+        </div>
+
+        <!-- Commandes complétées Header -->
+        <div class="accordion-header" onclick="toggleSection('completed', 'icon2')">
+            <span>✅ Commandes complétées</span>
+            <span id="icon2">▼</span>
+        </div>
+
+        <div id="completed" class="orders-list">
+            <div class="no-data">Chargement des commandes complétées...</div>
+        </div>
+
+    </div>
+
+    <script>
+        function openMenu() {
+            document.getElementById("menu").style.width = "250px";
+        }
+
+        function closeMenu() {
+            document.getElementById("menu").style.width = "0";
+        }
+
+        function toggleSection(id, iconId) {
+            let section = document.getElementById(id);
+            let icon = document.getElementById(iconId);
+            
+            if (section.style.display === "none") {
+                section.style.display = "grid";
+                icon.innerText = "▼";
+            } else {
+                section.style.display = "none";
+                icon.innerText = "▲";
+            }
+        }
+
+        // --- جلب بيانات الطلبات المباشرة والحية من السيرفر ---
+        const restaurantId = localStorage.getItem('restaurant_id') || 1;
+
+        async function fetchOrders() {
+            try {
+                const response = await fetch(`http://localhost:3000/api/all-orders/${restaurantId}`);
+                if (!response.ok) throw new Error("Erreur serveur");
+                
+                const data = await response.json();
+
+                const currentContainer = document.getElementById('current');
+                const completedContainer = document.getElementById('completed');
+
+                currentContainer.innerHTML = '';
+                completedContainer.innerHTML = '';
+
+                // 1. عرض الطلبات الجارية
+                if (data.activeOrders && data.activeOrders.length > 0) {
+                    data.activeOrders.forEach(order => {
+                        const driverText = order.driver_name ? order.driver_name : 'En recherche...';
+                        const isPending = !order.driver_name;
+                        const cardClass = isPending ? 'order-card pending' : 'order-card';
+                        const badgeHTML = isPending 
+                            ? `<span class="status-badge badge-orange">🔎 Recherche chauffeur</span>`
+                            : `<span class="status-badge badge-green">🛵 Chauffeur en route</span>`;
+
+                        const card = document.createElement('div');
+                        card.className = cardClass;
+                        card.innerHTML = `
+                            <div class="order-id">Commande #${order.id}</div>
+                            <div class="order-info"><strong>Adresse :</strong> ${order.delivery_address}</div>
+                            ${order.driver_name ? `<div class="order-info"><strong>Chauffeur :</strong> ${driverText}</div>` : ''}
+                            <div class="order-info"><strong>Prix livraison :</strong> ${order.delivery_fee} DT</div>
+                            ${badgeHTML}
+                        `;
+                        currentContainer.appendChild(card);
+                    });
+                } else {
+                    currentContainer.innerHTML = '<div class="no-data">Aucune commande en cours pour le moment.</div>';
+                }
+
+                // 2. عرض الطلبات المكتملة
+                if (data.completedOrders && data.completedOrders.length > 0) {
+                    data.completedOrders.forEach(order => {
+                        const card = document.createElement('div');
+                        card.className = 'order-card completed';
+                        card.innerHTML = `
+                            <div class="order-id">Commande #${order.id}</div>
+                            <div class="order-info"><strong>Adresse :</strong> ${order.delivery_address}</div>
+                            <div class="order-info"><strong>Prix livraison :</strong> ${order.delivery_fee} DT</div>
+                            <span class="status-badge badge-green">Terminée ✔</span>
+                        `;
+                        completedContainer.appendChild(card);
+                    });
+                } else {
+                    completedContainer.innerHTML = '<div class="no-data">Aucune commande complétée.</div>';
+                }
+
+            } catch (err) {
+                console.error("Erreur serveur:", err);
+            }
+        }
+
+        // تشغيل الجلب والتحديث الحي كل ثانيتين
+        fetchOrders();
+        setInterval(fetchOrders, 2000);
+    </script>
+
+</body>
+</html>
