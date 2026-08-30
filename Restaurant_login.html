@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion Restaurant - HADROUG DELIVERY</title>
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #f4f6f9;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px 10px;
+        }
+
+        .login-card {
+            background: #ffffff;
+            padding: 35px 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .header-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            width: 90px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+
+        .app-title {
+            font-size: 22px;
+            color: #2E7D32;
+            font-weight: 800;
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 6px;
+        }
+
+        .input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            background-color: #fafafa;
+            transition: all 0.3s ease;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: #2E7D32;
+            background-color: #fff;
+            box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.15);
+        }
+
+        .forgot-link {
+            text-align: right;
+            margin-top: -10px;
+            margin-bottom: 20px;
+        }
+
+        .forgot-link a {
+            font-size: 12px;
+            color: #2E7D32;
+            text-decoration: none;
+        }
+
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 15px;
+            display: none;
+            text-align: center;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 14px;
+            background-color: #2E7D32;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn-submit:hover {
+            background-color: #1B5E20;
+        }
+
+        .register-link {
+            text-align: center;
+            margin-top: 25px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .register-link a {
+            color: #2E7D32;
+            text-decoration: none;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="login-card">
+        
+        <div class="header-section">
+            <img src="photo1.png" alt="Hadroug Delivery Logo" class="logo">
+            <h1 class="app-title">HADROUG DELIVERY</h1>
+            <p class="subtitle">Bienvenue ! Connexion Restaurant</p>
+        </div>
+
+        <div id="errorAlert" class="error-message"></div>
+
+        <form id="loginForm">
+            
+            <div class="form-group">
+                <label>Téléphone ou Email :</label>
+                <input type="text" id="identifier" placeholder="ex: 20123456 ou mail@dali.tn" required class="input">
+            </div>
+
+            <div class="form-group">
+                <label>Mot de passe :</label>
+                <input type="password" id="password" placeholder="••••••••" required class="input">
+            </div>
+
+            <div class="forgot-link">
+                <a href="#">Mot de passe oublié ?</a>
+            </div>
+
+            <button type="submit" class="btn-submit">Se connecter</button>
+
+        </form>
+
+        <div class="register-link">
+            Vous n'avez pas de compte ? <a href="restaurant_register.html">Créer un compte</a>
+        </div>
+
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const identifier = document.getElementById('identifier').value;
+            const password = document.getElementById('password').value;
+            const errorAlert = document.getElementById('errorAlert');
+
+            errorAlert.style.display = 'none';
+
+            try {
+                // إرسال الطلب إلى السيرفر
+                const response = await fetch('http://localhost:3000/api/restaurant/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identifier, password })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // حفظ رمز الجلسة وبيانات المطعم في LocalStorage
+                    localStorage.setItem('restaurant_token', data.token);
+                    localStorage.setItem('restaurant_info', JSON.stringify(data.restaurant));
+
+                    // التوجيه للوحة التحويل
+                    window.location.href = 'restaurant_dashboard.html';
+                } else {
+                    errorAlert.innerText = data.message;
+                    errorAlert.style.display = 'block';
+                }
+            } catch (err) {
+                errorAlert.innerText = "Impossible de contacter le serveur.";
+                errorAlert.style.display = 'block';
+            }
+        });
+    </script>
+
+</body>
+</html>
