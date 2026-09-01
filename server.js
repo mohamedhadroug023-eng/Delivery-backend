@@ -2,208 +2,152 @@ require("dotenv").config();
 
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
-const mysql = require("mysql2/promise");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const crypto = require("crypto");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
+const mysql = require("mysql2/promise");
+const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
 
-/* =====================================================
+/* =========================================================
    CONFIG
-===================================================== */
+========================================================= */
 
 const PORT = Number(process.env.PORT || 3000);
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
-const OFFER_SECONDS = 20;
-
-// المسافة القصوى العادية بين السائق والمطعم
-const DEFAULT_RADIUS_KM = 2.5;
-
-// أقصى مسافة بين الزبون الأول والثاني
-// للسماح للسائق بأخذ طلبين
-const SECOND_ORDER_MAX_DISTANCE_KM = 2.0;
-
-// عمولتك من المطعم
-const PLATFORM_FEE = 1.000;
-
 if (!JWT_SECRET || JWT_SECRET.length < 32) {
-    throw new Error(
-        "JWT_SECRET must exist in .env and contain at least 32 characters."
+    console.error(
+        "ERROR: JWT_SECRET must exist in .env and contain at least 32 characters."
     );
+    process.exit(1);
 }
 
-/* =====================================================
-   CORS
-===================================================== */
-
-const CORS_ORIGINS = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN
-        .split(",")
-        .map(x => x.trim())
-        .filter(Boolean)
-    : true;
-
-/* =====================================================
+/* =========================================================
    SOCKET.IO
-===================================================== */
+========================================================= */
 
 const io = new Server(server, {
     cors: {
-        origin: CORS_ORIGINS,
-        methods: ["GET", "POST", "PATCH"],
-        credentials: true
+        origin: "*",
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
     }
 });
 
-const connectedDrivers = new Map();
-const connectedRestaurants = new Map();
-const connectedAdmins = new Set();
+/* =========================================================
+   EXPRESS
+========================================================= */
 
-/* =====================================================
-   MIDDLEWARE
-===================================================== */
+app.use(
+    helmet({
+        crossOriginResourcePolicy: false
+    })
+);
 
-app.use(helmet());
+app.use(
+    cors({
+        origin: "*",
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allowedHeaders: ["Content-Type", "Authorization"]
+    })
+);
 
-app.use(cors({
-    origin: CORS_ORIGINS,
-    credentials: true
-}));
-
-app.use(express.json({
-    limit: "100kb"
-}));
-
-const apiLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 120,
-    standardHeaders: true,
-    legacyHeaders: false
-});
+app.use(express.json({ limit: "100kb" }));
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20,
+    max: 100,
     standardHeaders: true,
     legacyHeaders: false
 });
 
-app.use("/api/", apiLimiter);
+const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false
+});
 
-/* =====================================================
-   DATABASE
-===================================================== */
+app.use(generalLimiter);
 
-const db = mysql.createPool({
+/* =========================================================
+   MYSQL
+========================================================= */
+
+const pool = mysql.createPool({
     host: process.env.DB_HOST || "localhost",
+    port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "",
     database: process.env.DB_NAME || "HADROUG_DELIVERY",
 
     waitForConnections: true,
-
-    connectionLimit:
-        Number(process.env.DB_CONNECTION_LIMIT || 10),
-
+    connectionLimit: Number(
+        process.env.DB_CONNECTION_LIMIT || 10
+    ),
     queueLimit: 0,
+
+    charset: "utf8mb4",
 
     decimalNumbers: true
 });
 
-/* =====================================================
+/* =========================================================
    HELPERS
-===================================================== */
+========================================================= */
 
-function cleanString(value, maxLength = 255) {
-
-    if (typeof value !== "string") {
-        return null;
-    }
-
-    const result = value.trim();
-
-    if (!result || result.length > maxLength) {
-        return null;
-    }
-
-    return result;
+function sendError(res, status, message) {
+    return res.status(status).json({
+        success: false,
+        message
+    });
 }
 
-function normalizePhone(phone) {
-
-    if (typeof phone !== "string") {
-        return null;
-    }
-
-    const value = phone.trim();
-
-    if (!/^[0-9+\-\s]{6,30}$/.test(value)) {
-        return null;
-    }
-
-    return value;
+function sendSuccess(res, data = {}) {
+    return res.json({
+        success: true,
+        ...data
+    });
 }
 
-function validCoordinates(lat, lng) {
-
-    const a = Number(lat);
-    const b = Number(lng);
+function isValidCoordinate(lat, lng) {
+    const latitude = Number(lat);
+    const longitude = Number(lng);
 
     return (
-        Number.isFinite(a) &&
-        Number.isFinite(b) &&
-        a >= -90 &&
-        a <= 90 &&
-        b >= -180 &&
-        b <= 180
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180
     );
 }
 
-function validMoney(value) {
-
-    const n = Number(value);
-
+function isValidPhone(phone) {
     return (
-        Number.isFinite(n) &&
-        n >= 0 &&
-        n <= 100000
+        typeof phone === "string" &&
+        phone.trim().length >= 6 &&
+        phone.trim().length <= 30
     );
 }
 
-function validId(value) {
-
-    const n = Number(value);
-
-    return Number.isInteger(n) && n > 0;
-}
-
-/*
-   كود 4 أرقام
-*/
 function generateOTP() {
-
     return String(
-        crypto.randomInt(1000, 10000)
+        Math.floor(1000 + Math.random() * 9000)
     );
 }
 
-/*
-   JWT
-*/
-function generateToken(id, role) {
-
+function generateToken(user) {
     return jwt.sign(
         {
-            id: Number(id),
-            role
+            id: Number(user.id),
+            role: user.role
         },
         JWT_SECRET,
         {
@@ -212,30 +156,45 @@ function generateToken(id, role) {
     );
 }
 
-/*
-   حساب المسافة بالكيلومتر
-   Haversine
-*/
+/* =========================================================
+   DISTANCE - HAVERSINE
+========================================================= */
+
 function calculateDistance(
     lat1,
     lng1,
     lat2,
     lng2
 ) {
-
     const R = 6371;
 
-    const dLat =
-        ((lat2 - lat1) * Math.PI) / 180;
+    const p1 =
+        Number(lat1) * Math.PI / 180;
 
-    const dLng =
-        ((lng2 - lng1) * Math.PI) / 180;
+    const p2 =
+        Number(lat2) * Math.PI / 180;
+
+    const dp =
+        (
+            Number(lat2) -
+            Number(lat1)
+        ) *
+        Math.PI /
+        180;
+
+    const dl =
+        (
+            Number(lng2) -
+            Number(lng1)
+        ) *
+        Math.PI /
+        180;
 
     const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLng / 2) ** 2;
+        Math.sin(dp / 2) ** 2 +
+        Math.cos(p1) *
+        Math.cos(p2) *
+        Math.sin(dl / 2) ** 2;
 
     return (
         R *
@@ -247,66 +206,127 @@ function calculateDistance(
     );
 }
 
-/* =====================================================
+/* =========================================================
    AUTHENTICATION
-===================================================== */
+========================================================= */
 
-function authenticate(...allowedRoles) {
+async function authenticate(req, res, next) {
+    try {
+        const header =
+            req.headers.authorization;
 
-    return (req, res, next) => {
-
-        try {
-
-            const header =
-                req.headers.authorization;
-
-            if (
-                !header ||
-                !header.startsWith("Bearer ")
-            ) {
-
-                return res.status(401).json({
-                    success: false,
-                    message: "Authentication required."
-                });
-            }
-
-            const token =
-                header.substring(7).trim();
-
-            const decoded =
-                jwt.verify(token, JWT_SECRET);
-
-            if (
-                allowedRoles.length &&
-                !allowedRoles.includes(decoded.role)
-            ) {
-
-                return res.status(403).json({
-                    success: false,
-                    message: "Access denied."
-                });
-            }
-
-            req.user = decoded;
-
-            next();
-
-        } catch {
-
-            return res.status(401).json({
-                success: false,
-                message: "Invalid or expired token."
-            });
+        if (
+            !header ||
+            !header.startsWith("Bearer ")
+        ) {
+            return sendError(
+                res,
+                401,
+                "Authentication required."
+            );
         }
+
+        const token =
+            header.substring(7);
+
+        const decoded =
+            jwt.verify(
+                token,
+                JWT_SECRET
+            );
+
+        req.user = decoded;
+
+        next();
+    } catch (_) {
+        return sendError(
+            res,
+            401,
+            "Invalid or expired token."
+        );
+    }
+}
+
+function requireRole(...roles) {
+    return (req, res, next) => {
+        if (
+            !req.user ||
+            !roles.includes(req.user.role)
+        ) {
+            return sendError(
+                res,
+                403,
+                "Access denied."
+            );
+        }
+
+        next();
     };
 }
 
-/* =====================================================
-   HISTORY
-===================================================== */
+/* =========================================================
+   DATABASE HELPERS
+========================================================= */
 
-async function addHistory(
+async function getRestaurantById(
+    id,
+    connection = pool
+) {
+    const [rows] =
+        await connection.execute(
+            `
+            SELECT *
+            FROM restaurants
+            WHERE id = ?
+            LIMIT 1
+            `,
+            [id]
+        );
+
+    return rows[0] || null;
+}
+
+async function getDriverById(
+    id,
+    connection = pool
+) {
+    const [rows] =
+        await connection.execute(
+            `
+            SELECT *
+            FROM drivers
+            WHERE id = ?
+            LIMIT 1
+            `,
+            [id]
+        );
+
+    return rows[0] || null;
+}
+
+async function getOrderById(
+    id,
+    connection = pool
+) {
+    const [rows] =
+        await connection.execute(
+            `
+            SELECT *
+            FROM orders
+            WHERE id = ?
+            LIMIT 1
+            `,
+            [id]
+        );
+
+    return rows[0] || null;
+}
+
+/* =========================================================
+   STATUS HISTORY
+========================================================= */
+
+async function addStatusHistory(
     connection,
     orderId,
     oldStatus,
@@ -314,7 +334,6 @@ async function addHistory(
     changedByType,
     changedById = null
 ) {
-
     await connection.execute(
         `
         INSERT INTO order_status_history
@@ -337,1830 +356,961 @@ async function addHistory(
     );
 }
 
-/* =====================================================
-   EXCLUDED DRIVERS
-===================================================== */
+/* =========================================================
+   SOCKET HELPERS
+========================================================= */
 
-async function getExcludedDrivers(
-    connection,
-    orderId
-) {
-
-    const [rows] =
-        await connection.execute(
-            `
-            SELECT driver_id
-            FROM order_dispatch_log
-            WHERE order_id = ?
-            AND status IN ('rejected', 'expired')
-            `,
-            [orderId]
-        );
-
-    return rows.map(
-        row => Number(row.driver_id)
-    );
+function restaurantRoom(id) {
+    return `restaurant:${id}`;
 }
 
-/* =====================================================
-   FIND BEST DRIVER
-===================================================== */
+function driverRoom(id) {
+    return `driver:${id}`;
+}
 
-/*
-   هنا قلب النظام.
+function adminRoom() {
+    return "admins";
+}
 
-   الحالة 1:
-   السائق ليس لديه أي طلب
-   -> يمكنه أخذ الطلب.
+function emitOrderUpdate(order) {
+    if (!order) return;
 
-   الحالة 2:
-   السائق لديه طلب واحد
-   -> يمكنه أخذ الطلب الثاني فقط إذا:
-      - max_concurrent_orders >= 2
-      - الطلب الحالي مازال نشطا
-      - الزبون الجديد قريب من الزبون الأول
-      - السائق قريب من المطعم الجديد
-*/
-
-async function findBestDriver(
-    connection,
-    order,
-    excludedDrivers
-) {
-
-    const [drivers] =
-        await connection.execute(
-            `
-            SELECT
-                d.id,
-                d.lat,
-                d.lng,
-                d.radius,
-                d.driver_points,
-                d.current_orders_count,
-                d.max_concurrent_orders,
-
-                o.id AS existing_order_id,
-                o.delivery_lat AS existing_delivery_lat,
-                o.delivery_lng AS existing_delivery_lng
-
-            FROM drivers d
-
-            LEFT JOIN orders o
-                ON o.driver_id = d.id
-                AND o.status IN
-                (
-                    'accepted',
-                    'picking_up',
-                    'delivering'
-                )
-
-            WHERE d.is_active = 1
-            AND d.is_online = 1
-            AND d.lat IS NOT NULL
-            AND d.lng IS NOT NULL
-
-            ORDER BY
-                d.current_orders_count ASC,
-                d.driver_points DESC
-            `
-        );
-
-    const candidates = [];
-
-    for (const driver of drivers) {
-
-        const driverId =
-            Number(driver.id);
-
-        if (
-            excludedDrivers.includes(
-                driverId
-            )
-        ) {
-            continue;
-        }
-
-        const currentOrders =
-            Number(
-                driver.current_orders_count
-            ) || 0;
-
-        const maxOrders =
-            Number(
-                driver.max_concurrent_orders
-            ) || 1;
-
-        const radius =
-            Math.min(
-                Number(driver.radius) ||
-                DEFAULT_RADIUS_KM,
-                DEFAULT_RADIUS_KM
-            );
-
-        const distanceToRestaurant =
-            calculateDistance(
-                Number(driver.lat),
-                Number(driver.lng),
-
-                Number(order.pickup_lat),
-                Number(order.pickup_lng)
-            );
-
-        /*
-           ================================
-           السائق الحر
-           ================================
-        */
-
-        if (currentOrders === 0) {
-
-            if (
-                distanceToRestaurant <=
-                radius
-            ) {
-
-                candidates.push({
-                    id: driverId,
-                    distance:
-                        distanceToRestaurant,
-                    points:
-                        Number(
-                            driver.driver_points
-                        ) || 0,
-                    mode: "free"
-                });
-            }
-
-            continue;
-        }
-
-        /*
-           ================================
-           السائق لديه طلب واحد
-           ================================
-        */
-
-        if (
-            currentOrders === 1 &&
-            maxOrders >= 2 &&
-            driver.existing_order_id &&
-            driver.existing_delivery_lat != null &&
-            driver.existing_delivery_lng != null
-        ) {
-
-            const distanceBetweenCustomers =
-                calculateDistance(
-
-                    Number(
-                        driver.existing_delivery_lat
-                    ),
-
-                    Number(
-                        driver.existing_delivery_lng
-                    ),
-
-                    Number(
-                        order.delivery_lat
-                    ),
-
-                    Number(
-                        order.delivery_lng
-                    )
-                );
-
-            /*
-               يجب أن يكون الزبون الثاني
-               قريبًا من الأول.
-            */
-
-            if (
-                distanceBetweenCustomers <=
-                SECOND_ORDER_MAX_DISTANCE_KM &&
-
-                distanceToRestaurant <=
-                radius
-            ) {
-
-                candidates.push({
-
-                    id: driverId,
-
-                    distance:
-                        distanceToRestaurant,
-
-                    points:
-                        Number(
-                            driver.driver_points
-                        ) || 0,
-
-                    mode: "double",
-
-                    distanceBetweenCustomers
-                });
-            }
-        }
-    }
-
-    /*
-       الأقرب أولاً
-       وإذا تساوت المسافة:
-       النقاط الأعلى أولاً
-    */
-
-    candidates.sort(
-        (a, b) =>
-            a.distance - b.distance ||
-            b.points - a.points
+    io.to(
+        restaurantRoom(order.restaurant_id)
+    ).emit(
+        "order:update",
+        order
     );
 
-    return candidates;
-}
-
-/* =====================================================
-   DISPATCH ORDER
-===================================================== */
-
-async function dispatchOrder(orderId) {
-
-    const connection =
-        await db.getConnection();
-
-    try {
-
-        await connection.beginTransaction();
-
-        const [orders] =
-            await connection.execute(
-                `
-                SELECT
-                    o.*,
-                    r.name AS restaurant_name,
-                    r.is_active AS restaurant_active
-
-                FROM orders o
-
-                JOIN restaurants r
-                    ON r.id = o.restaurant_id
-
-                WHERE o.id = ?
-
-                FOR UPDATE
-                `,
-                [orderId]
-            );
-
-        if (!orders.length) {
-
-            await connection.rollback();
-            return;
-        }
-
-        const order = orders[0];
-
-        if (
-            Number(
-                order.restaurant_active
-            ) !== 1
-        ) {
-
-            await connection.rollback();
-            return;
-        }
-
-        /*
-           إذا كان الطلب تم قبوله
-           لا نرسله مرة أخرى.
-        */
-
-        if (
-            !["pending", "offered"]
-                .includes(order.status)
-        ) {
-
-            await connection.rollback();
-            return;
-        }
-
-        /*
-           إذا كان العرض الحالي مازال صالحا
-           لا نرسل عرضا آخر.
-        */
-
-        if (
-            order.status === "offered" &&
-            order.offer_expires_at
-        ) {
-
-            const [valid] =
-                await connection.execute(
-                    `
-                    SELECT id
-                    FROM orders
-                    WHERE id = ?
-                    AND status = 'offered'
-                    AND offer_expires_at > NOW()
-                    `,
-                    [orderId]
-                );
-
-            if (valid.length) {
-
-                await connection.rollback();
-                return;
-            }
-        }
-
-        /*
-           السائق السابق انتهى عرضه.
-        */
-
-        if (
-            order.status === "offered" &&
-            order.offered_driver_id
-        ) {
-
-            const oldDriver =
-                Number(
-                    order.offered_driver_id
-                );
-
-            await connection.execute(
-                `
-                UPDATE order_dispatch_log
-                SET status = 'expired'
-                WHERE order_id = ?
-                AND driver_id = ?
-                AND status = 'offered'
-                `,
-                [
-                    orderId,
-                    oldDriver
-                ]
-            );
-
-            /*
-               عدم الإجابة خلال 20 ثانية
-               ينقص نقطة واحدة.
-            */
-
-            await connection.execute(
-                `
-                UPDATE drivers
-                SET driver_points =
-                    GREATEST(
-                        0,
-                        driver_points - 1
-                    )
-                WHERE id = ?
-                `,
-                [oldDriver]
-            );
-
-            io.to(
-                `driver_${oldDriver}`
-            ).emit(
-                "offer_expired",
-                {
-                    order_id: orderId
-                }
-            );
-        }
-
-        /*
-           السائقون الذين رفضوا
-           أو انتهت مدة عرضهم
-        */
-
-        const excluded =
-            await getExcludedDrivers(
-                connection,
-                orderId
-            );
-
-        const candidates =
-            await findBestDriver(
-                connection,
-                order,
-                excluded
-            );
-
-        let selected = null;
-
-        /*
-           إعادة فحص السائق داخل transaction
-           لمنع race conditions.
-        */
-
-        for (
-            const candidate of candidates
-        ) {
-
-            const [rows] =
-                await connection.execute(
-                    `
-                    SELECT
-                        id,
-                        is_active,
-                        is_online,
-                        current_orders_count,
-                        max_concurrent_orders
-
-                    FROM drivers
-                    WHERE id = ?
-
-                    FOR UPDATE
-                    `,
-                    [candidate.id]
-                );
-
-            if (!rows.length) {
-                continue;
-            }
-
-            const driver = rows[0];
-
-            if (
-                Number(driver.is_active) !== 1 ||
-                Number(driver.is_online) !== 1
-            ) {
-                continue;
-            }
-
-            const current =
-                Number(
-                    driver.current_orders_count
-                );
-
-            const max =
-                Number(
-                    driver.max_concurrent_orders
-                ) || 1;
-
-            if (current >= max) {
-                continue;
-            }
-
-            selected = candidate;
-            break;
-        }
-
-        /*
-           لا يوجد سائق حاليا
-        */
-
-        if (!selected) {
-
-            await connection.execute(
-                `
-                UPDATE orders
-
-                SET
-                    status = 'pending',
-                    offered_driver_id = NULL,
-                    offer_expires_at = NULL
-
-                WHERE id = ?
-                `,
-                [orderId]
-            );
-
-            await connection.commit();
-
-            io.to(
-                `restaurant_${order.restaurant_id}`
-            ).emit(
-                "order_waiting",
-                {
-                    order_id: orderId
-                }
-            );
-
-            return;
-        }
-
-        /*
-           إنشاء العرض
-           لمدة 20 ثانية
-        */
-
-        await connection.execute(
-            `
-            UPDATE orders
-
-            SET
-                status = 'offered',
-                offered_driver_id = ?,
-                offer_expires_at =
-                    DATE_ADD(
-                        NOW(),
-                        INTERVAL ? SECOND
-                    )
-
-            WHERE id = ?
-            `,
-            [
-                selected.id,
-                OFFER_SECONDS,
-                orderId
-            ]
-        );
-
-        await connection.execute(
-            `
-            INSERT INTO order_dispatch_log
-            (
-                order_id,
-                driver_id,
-                status
-            )
-
-            VALUES (?, ?, 'offered')
-            `,
-            [
-                orderId,
-                selected.id
-            ]
-        );
-
-        await addHistory(
-            connection,
-            orderId,
-            order.status,
-            "offered",
-            "system"
-        );
-
-        const [expires] =
-            await connection.execute(
-                `
-                SELECT offer_expires_at
-                FROM orders
-                WHERE id = ?
-                `,
-                [orderId]
-            );
-
-        await connection.commit();
-
-        /*
-           إرسال الطلب للسائق
-        */
-
+    if (order.driver_id) {
         io.to(
-            `driver_${selected.id}`
+            driverRoom(order.driver_id)
         ).emit(
-            "new_order_offer",
-            {
-                order_id: Number(orderId),
-
-                restaurant_name:
-                    order.restaurant_name,
-
-                pickup_lat:
-                    Number(order.pickup_lat),
-
-                pickup_lng:
-                    Number(order.pickup_lng),
-
-                delivery_lat:
-                    Number(order.delivery_lat),
-
-                delivery_lng:
-                    Number(order.delivery_lng),
-
-                food_price:
-                    Number(order.food_price),
-
-                delivery_fee:
-                    Number(order.delivery_fee),
-
-                platform_fee:
-                    PLATFORM_FEE,
-
-                mode:
-                    selected.mode,
-
-                distance_to_restaurant:
-                    selected.distance,
-
-                expires_at:
-                    expires[0]?.offer_expires_at
-            }
+            "order:update",
+            order
         );
-
-        /*
-           مراقبة انتهاء الـ20 ثانية
-        */
-
-        setTimeout(
-            () => checkOfferExpiration(
-                orderId,
-                selected.id
-            ).catch(console.error),
-
-            (OFFER_SECONDS * 1000) + 500
-        );
-
-    } catch (error) {
-
-        try {
-            await connection.rollback();
-        } catch {}
-
-        console.error(
-            "Dispatch error:",
-            error
-        );
-
-    } finally {
-
-        connection.release();
     }
-}
 
-/* =====================================================
-   OFFER EXPIRATION
-===================================================== */
-
-async function checkOfferExpiration(
-    orderId,
-    driverId
-) {
-
-    const connection =
-        await db.getConnection();
-
-    try {
-
-        await connection.beginTransaction();
-
-        const [orders] =
-            await connection.execute(
-                `
-                SELECT *
-                FROM orders
-                WHERE id = ?
-                FOR UPDATE
-                `,
-                [orderId]
-            );
-
-        if (!orders.length) {
-
-            await connection.rollback();
-            return;
-        }
-
-        const order = orders[0];
-
-        /*
-           ربما السائق قبل بالفعل.
-        */
-
-        if (
-            order.status !== "offered" ||
-            Number(
-                order.offered_driver_id
-            ) !== Number(driverId)
-        ) {
-
-            await connection.rollback();
-            return;
-        }
-
-        const [expired] =
-            await connection.execute(
-                `
-                SELECT id
-                FROM orders
-
-                WHERE id = ?
-
-                AND offer_expires_at IS NOT NULL
-
-                AND offer_expires_at <= NOW()
-                `,
-                [orderId]
-            );
-
-        if (!expired.length) {
-
-            await connection.rollback();
-            return;
-        }
-
-        await connection.execute(
-            `
-            UPDATE order_dispatch_log
-
-            SET status = 'expired'
-
-            WHERE order_id = ?
-            AND driver_id = ?
-            AND status = 'offered'
-            `,
-            [
-                orderId,
-                driverId
-            ]
-        );
-
-        /*
-           نقص نقطة واحدة
-        */
-
-        await connection.execute(
-            `
-            UPDATE drivers
-
-            SET driver_points =
-                GREATEST(
-                    0,
-                    driver_points - 1
-                )
-
-            WHERE id = ?
-            `,
-            [driverId]
-        );
-
-        await connection.execute(
-            `
-            UPDATE orders
-
-            SET
-                status = 'pending',
-                offered_driver_id = NULL,
-                offer_expires_at = NULL
-
-            WHERE id = ?
-            `,
-            [orderId]
-        );
-
-        await addHistory(
-            connection,
-            orderId,
-            "offered",
-            "pending",
-            "system"
-        );
-
-        await connection.commit();
-
+    if (order.offered_driver_id) {
         io.to(
-            `driver_${driverId}`
+            driverRoom(order.offered_driver_id)
         ).emit(
-            "offer_expired",
-            {
-                order_id: orderId
-            }
+            "order:update",
+            order
         );
-
-        /*
-           الآن مباشرة للسائق التالي
-        */
-
-        dispatchOrder(orderId)
-            .catch(console.error);
-
-    } catch (error) {
-
-        try {
-            await connection.rollback();
-        } catch {}
-
-        console.error(
-            "Expiration error:",
-            error
-        );
-
-    } finally {
-
-        connection.release();
     }
+
+    io.to(adminRoom())
+        .emit(
+            "order:update",
+            order
+        );
 }
 
-/* =====================================================
-   EXPIRATION WORKER
-===================================================== */
+function emitDriverUpdate(driver) {
+    if (!driver) return;
 
-async function expirationWorker() {
-
-    try {
-
-        const [rows] =
-            await db.execute(
-                `
-                SELECT
-                    id,
-                    offered_driver_id
-
-                FROM orders
-
-                WHERE status = 'offered'
-
-                AND offer_expires_at IS NOT NULL
-
-                AND offer_expires_at <= NOW()
-
-                LIMIT 100
-                `
-            );
-
-        for (const row of rows) {
-
-            await checkOfferExpiration(
-                Number(row.id),
-                Number(row.offered_driver_id)
-            );
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Expiration worker:",
-            error
+    io.to(adminRoom())
+        .emit(
+            "driver:update",
+            driver
         );
-    }
 }
 
-setInterval(
-    expirationWorker,
-    5000
-);
+/* =========================================================
+   HEALTH
+========================================================= */
 
-/* =====================================================
-   SOCKET AUTH
-===================================================== */
+app.get("/", (req, res) => {
+    res.json({
+        success: true,
+        name: "HADROUG DELIVERY API",
+        version: "1.1.0",
+        status: "online"
+    });
+});
 
-io.use(
-    async (socket, next) => {
-
+app.get(
+    "/health",
+    async (req, res) => {
         try {
+            await pool.query("SELECT 1");
 
-            const token =
-                socket.handshake.auth?.token;
+            res.json({
+                success: true,
+                server: "online",
+                database: "connected",
+                time: new Date()
+            });
+        } catch (error) {
+            console.error(error);
 
-            if (!token) {
-
-                return next(
-                    new Error(
-                        "Authentication required"
-                    )
-                );
-            }
-
-            const decoded =
-                jwt.verify(
-                    token,
-                    JWT_SECRET
-                );
-
-            let table;
-
-            if (
-                decoded.role === "driver"
-            ) {
-                table = "drivers";
-            }
-
-            else if (
-                decoded.role === "restaurant"
-            ) {
-                table = "restaurants";
-            }
-
-            else if (
-                decoded.role === "admin"
-            ) {
-                table = "admins";
-            }
-
-            else {
-
-                return next(
-                    new Error(
-                        "Invalid role"
-                    )
-                );
-            }
-
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT is_active
-                    FROM ${table}
-
-                    WHERE id = ?
-
-                    LIMIT 1
-                    `,
-                    [decoded.id]
-                );
-
-            if (
-                !rows.length ||
-                Number(
-                    rows[0].is_active
-                ) !== 1
-            ) {
-
-                return next(
-                    new Error(
-                        "Account inactive"
-                    )
-                );
-            }
-
-            socket.user = decoded;
-
-            next();
-
-        } catch {
-
-            next(
-                new Error(
-                    "Invalid socket token"
-                )
-            );
+            res.status(500).json({
+                success: false,
+                server: "online",
+                database: "offline"
+            });
         }
     }
 );
 
-/* =====================================================
-   SOCKET CONNECTION
-===================================================== */
-
-io.on(
-    "connection",
-    socket => {
-
-        const {
-            id,
-            role
-        } = socket.user;
-
-        /*
-           DRIVER
-        */
-
-        if (role === "driver") {
-
-            socket.join(
-                `driver_${id}`
-            );
-
-            /*
-               جلسة واحدة للسائق
-            */
-
-            if (
-                connectedDrivers.has(id)
-            ) {
-
-                const oldSocket =
-                    connectedDrivers.get(id);
-
-                io.sockets.sockets
-                    .get(oldSocket)
-                    ?.disconnect(true);
-            }
-
-            connectedDrivers.set(
-                id,
-                socket.id
-            );
-        }
-
-        /*
-           RESTAURANT
-        */
-
-        if (
-            role === "restaurant"
-        ) {
-
-            socket.join(
-                `restaurant_${id}`
-            );
-
-            connectedRestaurants.set(
-                id,
-                socket.id
-            );
-        }
-
-        /*
-           ADMIN
-        */
-
-        if (role === "admin") {
-
-            socket.join(
-                "admin_room"
-            );
-
-            connectedAdmins.add(
-                socket.id
-            );
-        }
-
-        /*
-           ================================
-           DRIVER LOCATION
-           ================================
-        */
-
-        socket.on(
-            "update_location",
-            async data => {
-
-                if (role !== "driver") {
-                    return;
-                }
-
-                const lat =
-                    Number(data?.lat);
-
-                const lng =
-                    Number(data?.lng);
-
-                if (
-                    !validCoordinates(
-                        lat,
-                        lng
-                    )
-                ) {
-                    return;
-                }
-
-                try {
-
-                    await db.execute(
-                        `
-                        UPDATE drivers
-
-                        SET
-                            lat = ?,
-                            lng = ?,
-                            last_location_update =
-                                NOW()
-
-                        WHERE id = ?
-                        AND is_active = 1
-                        `,
-                        [
-                            lat,
-                            lng,
-                            id
-                        ]
-                    );
-
-                    /*
-                       الإدارة
-                    */
-
-                    io.to(
-                        "admin_room"
-                    ).emit(
-                        "driver_location_updated",
-                        {
-                            driver_id:
-                                Number(id),
-
-                            lat,
-                            lng,
-
-                            updated_at:
-                                new Date()
-                        }
-                    );
-
-                    /*
-                       المطاعم التي لديها
-                       طلبات لهذا السائق
-                    */
-
-                    const [orders] =
-                        await db.execute(
-                            `
-                            SELECT
-                                id,
-                                restaurant_id
-
-                            FROM orders
-
-                            WHERE driver_id = ?
-
-                            AND status IN
-                            (
-                                'accepted',
-                                'picking_up',
-                                'delivering'
-                            )
-                            `,
-                            [id]
-                        );
-
-                    for (
-                        const order of orders
-                    ) {
-
-                        io.to(
-                            `restaurant_${order.restaurant_id}`
-                        ).emit(
-                            "driver_location_updated",
-                            {
-                                order_id:
-                                    Number(order.id),
-
-                                driver_id:
-                                    Number(id),
-
-                                lat,
-                                lng
-                            }
-                        );
-                    }
-
-                } catch (error) {
-
-                    console.error(
-                        "Location update:",
-                        error
-                    );
-                }
-            }
-        );
-
-        /*
-           ================================
-           DISCONNECT
-           ================================
-        */
-
-        socket.on(
-            "disconnect",
-            async () => {
-
-                try {
-
-                    if (
-                        role === "driver" &&
-                        connectedDrivers.get(id)
-                            === socket.id
-                    ) {
-
-                        connectedDrivers.delete(
-                            id
-                        );
-
-                        await db.execute(
-                            `
-                            UPDATE drivers
-
-                            SET is_online = 0
-
-                            WHERE id = ?
-                            `,
-                            [id]
-                        );
-
-                        io.to(
-                            "admin_room"
-                        ).emit(
-                            "driver_status_updated",
-                            {
-                                driver_id:
-                                    Number(id),
-
-                                is_online:
-                                    false
-                            }
-                        );
-                    }
-
-                    if (
-                        role === "restaurant" &&
-                        connectedRestaurants.get(id)
-                            === socket.id
-                    ) {
-
-                        connectedRestaurants.delete(
-                            id
-                        );
-                    }
-
-                    if (
-                        role === "admin"
-                    ) {
-
-                        connectedAdmins.delete(
-                            socket.id
-                        );
-                    }
-
-                } catch {}
-            }
-        );
-    }
-);
-
-/* =====================================================
+/* =========================================================
    AUTH - RESTAURANT
-===================================================== */
+========================================================= */
 
 app.post(
     "/api/auth/restaurant/login",
     authLimiter,
     async (req, res) => {
-
-        const phone =
-            normalizePhone(
-                req.body.phone
-            );
-
-        const password =
-            req.body.password;
-
-        if (
-            !phone ||
-            typeof password !== "string"
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Phone and password are required."
-            });
-        }
-
         try {
-
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT
-                        id,
-                        name,
-                        password_hash,
-                        is_active
-
-                    FROM restaurants
-
-                    WHERE phone = ?
-
-                    LIMIT 1
-                    `,
-                    [phone]
-                );
+            const {
+                phone,
+                password
+            } = req.body;
 
             if (
-                !rows.length ||
-                Number(
-                    rows[0].is_active
-                ) !== 1 ||
-                !(
-                    await bcrypt.compare(
-                        password,
-                        rows[0].password_hash
-                    )
-                )
+                !isValidPhone(phone) ||
+                !password
             ) {
-
-                return res.status(401).json({
-                    success: false,
-                    message:
-                        "Invalid credentials."
-                });
+                return sendError(
+                    res,
+                    400,
+                    "Phone and password are required."
+                );
             }
 
-            res.json({
-                success: true,
+            const [rows] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM restaurants
+                    WHERE phone = ?
+                    LIMIT 1
+                    `,
+                    [phone.trim()]
+                );
 
-                token:
-                    generateToken(
-                        rows[0].id,
-                        "restaurant"
-                    ),
+            const restaurant =
+                rows[0];
 
-                restaurant: {
-                    id: rows[0].id,
-                    name: rows[0].name
-                }
+            if (!restaurant) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            if (!restaurant.is_active) {
+                return sendError(
+                    res,
+                    403,
+                    "Restaurant is inactive."
+                );
+            }
+
+            const valid =
+                await bcrypt.compare(
+                    password,
+                    restaurant.password_hash
+                );
+
+            if (!valid) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            const token =
+                generateToken({
+                    id: restaurant.id,
+                    role: "restaurant"
+                });
+
+            delete restaurant.password_hash;
+
+            return sendSuccess(res, {
+                token,
+                user: restaurant
             });
-
         } catch (error) {
-
             console.error(error);
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
+            return sendError(
+                res,
+                500,
+                "Login failed."
+            );
         }
     }
 );
 
-/* =====================================================
+/* =========================================================
    AUTH - DRIVER
-===================================================== */
+========================================================= */
 
 app.post(
     "/api/auth/driver/login",
     authLimiter,
     async (req, res) => {
-
-        const phone =
-            normalizePhone(
-                req.body.phone
-            );
-
-        const password =
-            req.body.password;
-
-        if (
-            !phone ||
-            typeof password !== "string"
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Phone and password are required."
-            });
-        }
-
         try {
-
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT
-                        id,
-                        name,
-                        password_hash,
-                        is_active
-
-                    FROM drivers
-
-                    WHERE phone = ?
-
-                    LIMIT 1
-                    `,
-                    [phone]
-                );
+            const {
+                phone,
+                password
+            } = req.body;
 
             if (
-                !rows.length ||
-                Number(
-                    rows[0].is_active
-                ) !== 1 ||
-                !(
-                    await bcrypt.compare(
-                        password,
-                        rows[0].password_hash
-                    )
-                )
+                !isValidPhone(phone) ||
+                !password
             ) {
-
-                return res.status(401).json({
-                    success: false,
-                    message:
-                        "Invalid credentials."
-                });
+                return sendError(
+                    res,
+                    400,
+                    "Phone and password are required."
+                );
             }
 
-            res.json({
-                success: true,
+            const [rows] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM drivers
+                    WHERE phone = ?
+                    LIMIT 1
+                    `,
+                    [phone.trim()]
+                );
 
-                token:
-                    generateToken(
-                        rows[0].id,
-                        "driver"
-                    ),
+            const driver =
+                rows[0];
 
-                driver: {
-                    id: rows[0].id,
-                    name: rows[0].name
-                }
+            if (!driver) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            if (!driver.is_active) {
+                return sendError(
+                    res,
+                    403,
+                    "Driver is inactive."
+                );
+            }
+
+            const valid =
+                await bcrypt.compare(
+                    password,
+                    driver.password_hash
+                );
+
+            if (!valid) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            const token =
+                generateToken({
+                    id: driver.id,
+                    role: "driver"
+                });
+
+            delete driver.password_hash;
+
+            return sendSuccess(res, {
+                token,
+                user: driver
             });
-
         } catch (error) {
-
             console.error(error);
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
+            return sendError(
+                res,
+                500,
+                "Login failed."
+            );
         }
     }
 );
 
-/* =====================================================
+/* =========================================================
    AUTH - ADMIN
-===================================================== */
+========================================================= */
 
 app.post(
     "/api/auth/admin/login",
     authLimiter,
     async (req, res) => {
-
-        const username =
-            cleanString(
-                req.body.username,
-                100
-            );
-
-        const password =
-            req.body.password;
-
-        if (
-            !username ||
-            typeof password !== "string"
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Username and password are required."
-            });
-        }
-
         try {
+            const {
+                username,
+                password
+            } = req.body;
 
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT
-                        id,
-                        password_hash,
-                        is_active
-
-                    FROM admins
-
-                    WHERE username = ?
-
-                    LIMIT 1
-                    `,
-                    [username]
+            if (!username || !password) {
+                return sendError(
+                    res,
+                    400,
+                    "Username and password are required."
                 );
-
-            if (
-                !rows.length ||
-                Number(
-                    rows[0].is_active
-                ) !== 1 ||
-                !(
-                    await bcrypt.compare(
-                        password,
-                        rows[0].password_hash
-                    )
-                )
-            ) {
-
-                return res.status(401).json({
-                    success: false,
-                    message:
-                        "Invalid credentials."
-                });
             }
 
-            res.json({
-                success: true,
+            const [rows] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM admins
+                    WHERE username = ?
+                    LIMIT 1
+                    `,
+                    [username.trim()]
+                );
 
-                token:
-                    generateToken(
-                        rows[0].id,
-                        "admin"
-                    )
+            const admin =
+                rows[0];
+
+            if (!admin) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            if (!admin.is_active) {
+                return sendError(
+                    res,
+                    403,
+                    "Admin is inactive."
+                );
+            }
+
+            const valid =
+                await bcrypt.compare(
+                    password,
+                    admin.password_hash
+                );
+
+            if (!valid) {
+                return sendError(
+                    res,
+                    401,
+                    "Invalid credentials."
+                );
+            }
+
+            const token =
+                generateToken({
+                    id: admin.id,
+                    role: "admin"
+                });
+
+            delete admin.password_hash;
+
+            return sendSuccess(res, {
+                token,
+                user: admin
             });
-
         } catch (error) {
-
             console.error(error);
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
+            return sendError(
+                res,
+                500,
+                "Login failed."
+            );
+        }
+    }
+);
+/* =========================================================
+   ADMIN - CREATE RESTAURANT
+========================================================= */
+
+app.post(
+    "/api/admin/restaurants",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const {
+                name,
+                phone,
+                password,
+                address,
+                lat,
+                lng
+            } = req.body;
+
+            if (
+                !name ||
+                !phone ||
+                !password
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Name, phone and password are required."
+                );
+            }
+
+            if (
+                lat !== undefined ||
+                lng !== undefined
+            ) {
+                if (
+                    !isValidCoordinate(
+                        lat,
+                        lng
+                    )
+                ) {
+                    return sendError(
+                        res,
+                        400,
+                        "Invalid restaurant coordinates."
+                    );
+                }
+            }
+
+            const passwordHash =
+                await bcrypt.hash(
+                    password,
+                    12
+                );
+
+            const [result] =
+                await pool.execute(
+                    `
+                    INSERT INTO restaurants
+                    (
+                        name,
+                        phone,
+                        password_hash,
+                        address,
+                        lat,
+                        lng
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    `,
+                    [
+                        name.trim(),
+                        phone.trim(),
+                        passwordHash,
+                        address
+                            ? String(address).trim()
+                            : null,
+                        lat ?? null,
+                        lng ?? null
+                    ]
+                );
+
+            return sendSuccess(res, {
+                message:
+                    "Restaurant created.",
+                restaurant_id:
+                    result.insertId
             });
+        } catch (error) {
+            console.error(error);
+
+            if (
+                error.code ===
+                "ER_DUP_ENTRY"
+            ) {
+                return sendError(
+                    res,
+                    409,
+                    "Restaurant phone already exists."
+                );
+            }
+
+            return sendError(
+                res,
+                500,
+                "Could not create restaurant."
+            );
         }
     }
 );
 
-/* =====================================================
+/* =========================================================
+   ADMIN - CREATE DRIVER
+========================================================= */
+
+app.post(
+    "/api/admin/drivers",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const {
+                name,
+                phone,
+                password,
+                vehicle,
+                radius,
+                max_concurrent_orders
+            } = req.body;
+
+            if (
+                !name ||
+                !phone ||
+                !password
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Name, phone and password are required."
+                );
+            }
+
+            let maxOrders =
+                Number(
+                    max_concurrent_orders ?? 1
+                );
+
+            if (
+                !Number.isInteger(
+                    maxOrders
+                )
+            ) {
+                maxOrders = 1;
+            }
+
+            maxOrders =
+                Math.max(
+                    1,
+                    Math.min(
+                        maxOrders,
+                        2
+                    )
+                );
+
+            const driverRadius =
+                Number(
+                    radius ?? 2.5
+                );
+
+            if (
+                !Number.isFinite(
+                    driverRadius
+                ) ||
+                driverRadius <= 0 ||
+                driverRadius > 20
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Invalid driver radius."
+                );
+            }
+
+            const passwordHash =
+                await bcrypt.hash(
+                    password,
+                    12
+                );
+
+            const [result] =
+                await pool.execute(
+                    `
+                    INSERT INTO drivers
+                    (
+                        name,
+                        phone,
+                        password_hash,
+                        vehicle,
+                        radius,
+                        max_concurrent_orders,
+                        driver_points
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, 100)
+                    `,
+                    [
+                        name.trim(),
+                        phone.trim(),
+                        passwordHash,
+                        vehicle ||
+                            "scooter",
+                        driverRadius,
+                        maxOrders
+                    ]
+                );
+
+            return sendSuccess(res, {
+                message:
+                    "Driver created.",
+                driver_id:
+                    result.insertId
+            });
+        } catch (error) {
+            console.error(error);
+
+            if (
+                error.code ===
+                "ER_DUP_ENTRY"
+            ) {
+                return sendError(
+                    res,
+                    409,
+                    "Driver phone already exists."
+                );
+            }
+
+            return sendError(
+                res,
+                500,
+                "Could not create driver."
+            );
+        }
+    }
+);
+
+/* =========================================================
    DRIVER ONLINE / OFFLINE
-===================================================== */
+========================================================= */
 
 app.post(
     "/api/driver/status",
-    authenticate("driver"),
+    authenticate,
+    requireRole("driver"),
     async (req, res) => {
-
-        const online =
-            req.body.is_online === true;
-
         try {
+            const online =
+                Boolean(req.body.online);
 
-            const [rows] =
-                await db.execute(
+            const [result] =
+                await pool.execute(
                     `
-                    SELECT
-                        id,
-                        is_active,
-                        current_orders_count
-
-                    FROM drivers
-
+                    UPDATE drivers
+                    SET is_online = ?
                     WHERE id = ?
-
-                    LIMIT 1
+                    AND is_active = 1
                     `,
-                    [req.user.id]
+                    [
+                        online ? 1 : 0,
+                        req.user.id
+                    ]
                 );
 
             if (
-                !rows.length ||
-                Number(
-                    rows[0].is_active
-                ) !== 1
+                result.affectedRows === 0
             ) {
-
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        "Driver inactive."
-                });
+                return sendError(
+                    res,
+                    404,
+                    "Driver not found."
+                );
             }
 
-            /*
-               لا يمكنه الخروج Offline
-               ولديه طلبات.
-            */
-
-            if (
-                !online &&
-                Number(
-                    rows[0].current_orders_count
-                ) > 0
-            ) {
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "You cannot go offline while you have active orders."
-                });
-            }
-
-            await db.execute(
-                `
-                UPDATE drivers
-
-                SET is_online = ?
-
-                WHERE id = ?
-                `,
-                [
-                    online ? 1 : 0,
+            const driver =
+                await getDriverById(
                     req.user.id
-                ]
-            );
+                );
 
-            io.to(
-                "admin_room"
-            ).emit(
-                "driver_status_updated",
-                {
-                    driver_id:
-                        Number(req.user.id),
+            emitDriverUpdate(driver);
 
-                    is_online:
-                        online
-                }
-            );
-
-            res.json({
-                success: true,
-                is_online: online
+            return sendSuccess(res, {
+                online,
+                driver
             });
-
         } catch (error) {
-
             console.error(error);
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
+            return sendError(
+                res,
+                500,
+                "Could not update driver status."
+            );
         }
     }
 );
 
-/* =====================================================
-   DRIVER LOCATION REST
-===================================================== */
+/* =========================================================
+   DRIVER LOCATION
+========================================================= */
+
+async function updateDriverLocation(
+    driverId,
+    lat,
+    lng
+) {
+    if (
+        !isValidCoordinate(
+            lat,
+            lng
+        )
+    ) {
+        return false;
+    }
+
+    const [result] =
+        await pool.execute(
+            `
+            UPDATE drivers
+            SET
+                lat = ?,
+                lng = ?,
+                last_location_update = NOW()
+            WHERE id = ?
+            AND is_active = 1
+            `,
+            [
+                Number(lat),
+                Number(lng),
+                driverId
+            ]
+        );
+
+    return result.affectedRows > 0;
+}
+
+async function broadcastDriverLocation(
+    driverId,
+    lat,
+    lng
+) {
+    const [orders] =
+        await pool.execute(
+            `
+            SELECT
+                id,
+                restaurant_id
+            FROM orders
+            WHERE driver_id = ?
+            AND status IN
+            (
+                'accepted',
+                'picking_up',
+                'delivering'
+            )
+            `,
+            [driverId]
+        );
+
+    for (const order of orders) {
+        io.to(
+            restaurantRoom(
+                order.restaurant_id
+            )
+        ).emit(
+            "driver:location",
+            {
+                driver_id: driverId,
+                order_id: order.id,
+                lat: Number(lat),
+                lng: Number(lng)
+            }
+        );
+    }
+
+    io.to(adminRoom())
+        .emit(
+            "driver:location",
+            {
+                driver_id: driverId,
+                lat: Number(lat),
+                lng: Number(lng)
+            }
+        );
+}
 
 app.post(
     "/api/driver/location",
-    authenticate("driver"),
+    authenticate,
+    requireRole("driver"),
     async (req, res) => {
-
-        const lat =
-            Number(req.body.lat);
-
-        const lng =
-            Number(req.body.lng);
-
-        if (
-            !validCoordinates(
+        try {
+            const {
                 lat,
                 lng
-            )
-        ) {
+            } = req.body;
 
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid coordinates."
-            });
-        }
-
-        try {
-
-            await db.execute(
-                `
-                UPDATE drivers
-
-                SET
-                    lat = ?,
-                    lng = ?,
-                    last_location_update =
-                        NOW()
-
-                WHERE id = ?
-                AND is_active = 1
-                `,
-                [
-                    lat,
-                    lng,
-                    req.user.id
-                ]
-            );
-
-            io.to(
-                "admin_room"
-            ).emit(
-                "driver_location_updated",
-                {
-                    driver_id:
-                        Number(req.user.id),
-
+            if (
+                !isValidCoordinate(
                     lat,
                     lng
-                }
+                )
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Invalid coordinates."
+                );
+            }
+
+            const updated =
+                await updateDriverLocation(
+                    req.user.id,
+                    lat,
+                    lng
+                );
+
+            if (!updated) {
+                return sendError(
+                    res,
+                    404,
+                    "Driver not found."
+                );
+            }
+
+            const driver =
+                await getDriverById(
+                    req.user.id
+                );
+
+            emitDriverUpdate(driver);
+
+            await broadcastDriverLocation(
+                req.user.id,
+                lat,
+                lng
             );
 
-            res.json({
-                success: true
+            return sendSuccess(res, {
+                message:
+                    "Location updated."
             });
-
         } catch (error) {
-
             console.error(error);
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
+            return sendError(
+                res,
+                500,
+                "Could not update location."
+            );
         }
     }
 );
-/* =====================================================
+
+/* =========================================================
    CREATE ORDER
-===================================================== */
+========================================================= */
 
 app.post(
-    "/api/restaurant/orders",
-    authenticate("restaurant"),
+    "/api/orders",
+    authenticate,
+    requireRole("restaurant"),
     async (req, res) => {
-
-        const restaurantId =
-            Number(req.user.id);
-
-        const customerName =
-            cleanString(
-                req.body.customer_name,
-                150
-            );
-
-        const customerPhone =
-            normalizePhone(
-                req.body.customer_phone
-            );
-
-        const customerAddress =
-            cleanString(
-                req.body.customer_address,
-                500
-            );
-
-        const pickupLat =
-            Number(req.body.pickup_lat);
-
-        const pickupLng =
-            Number(req.body.pickup_lng);
-
-        const deliveryLat =
-            Number(req.body.delivery_lat);
-
-        const deliveryLng =
-            Number(req.body.delivery_lng);
-
-        const foodPrice =
-            Number(req.body.food_price);
-
-        const deliveryFee =
-            Number(req.body.delivery_fee);
-
-        if (
-            !customerName ||
-            !customerPhone ||
-            !customerAddress ||
-
-            !validCoordinates(
-                pickupLat,
-                pickupLng
-            ) ||
-
-            !validCoordinates(
-                deliveryLat,
-                deliveryLng
-            ) ||
-
-            !validMoney(foodPrice) ||
-
-            !validMoney(deliveryFee) ||
-
-            deliveryFee <= 0
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order data."
-            });
-        }
-
         const connection =
-            await db.getConnection();
+            await pool.getConnection();
 
         try {
+            const {
+                customer_name,
+                customer_phone,
+                customer_address,
+                delivery_lat,
+                delivery_lng,
+                food_price,
+                delivery_fee
+            } = req.body;
 
-            await connection.beginTransaction();
+            if (
+                !customer_name ||
+                !customer_phone ||
+                !customer_address
+            ) {
+                connection.release();
 
-            const [restaurants] =
-                await connection.execute(
-                    `
-                    SELECT
-                        id,
-                        name,
-                        is_active
+                return sendError(
+                    res,
+                    400,
+                    "Customer information is required."
+                );
+            }
 
-                    FROM restaurants
+            if (
+                !isValidCoordinate(
+                    delivery_lat,
+                    delivery_lng
+                )
+            ) {
+                connection.release();
 
-                    WHERE id = ?
+                return sendError(
+                    res,
+                    400,
+                    "Invalid delivery coordinates."
+                );
+            }
 
-                    FOR UPDATE
-                    `,
-                    [restaurantId]
+            const restaurant =
+                await getRestaurantById(
+                    req.user.id,
+                    connection
+                );
+
+            if (!restaurant) {
+                connection.release();
+
+                return sendError(
+                    res,
+                    404,
+                    "Restaurant not found."
+                );
+            }
+
+            if (!restaurant.is_active) {
+                connection.release();
+
+                return sendError(
+                    res,
+                    403,
+                    "Restaurant is inactive."
+                );
+            }
+
+            if (
+                !isValidCoordinate(
+                    restaurant.lat,
+                    restaurant.lng
+                )
+            ) {
+                connection.release();
+
+                return sendError(
+                    res,
+                    400,
+                    "Restaurant location is not configured."
+                );
+            }
+
+            const food =
+                Number(
+                    food_price ?? 0
+                );
+
+            const delivery =
+                Number(
+                    delivery_fee ?? 0
                 );
 
             if (
-                !restaurants.length ||
-                Number(
-                    restaurants[0].is_active
-                ) !== 1
+                !Number.isFinite(food) ||
+                food < 0 ||
+                !Number.isFinite(delivery) ||
+                delivery < 0
             ) {
+                connection.release();
 
-                await connection.rollback();
-
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        "Restaurant inactive."
-                });
+                return sendError(
+                    res,
+                    400,
+                    "Invalid price."
+                );
             }
-
-            /*
-               OTP يتم إنشاؤه عند إنشاء الطلب
-               ولا يظهر إلا للسائق بعد قبوله.
-            */
 
             const otp =
                 generateOTP();
+
+            await connection.beginTransaction();
 
             const [result] =
                 await connection.execute(
@@ -2168,7 +1318,6 @@ app.post(
                     INSERT INTO orders
                     (
                         restaurant_id,
-
                         customer_name,
                         customer_phone,
                         customer_address,
@@ -2181,131 +1330,675 @@ app.post(
 
                         food_price,
                         delivery_fee,
-
                         platform_fee,
 
                         otp_code,
-
                         status,
-                        payment_status
+                        payment_status,
+                        platform_fee_recorded
                     )
-
                     VALUES
                     (
                         ?, ?, ?, ?,
                         ?, ?,
                         ?, ?,
-                        ?, ?,
-                        ?,
-                        ?,
-                        'pending',
-                        'pending'
+                        ?, ?, 1.000,
+                        ?, 'pending', 'pending', 0
                     )
                     `,
                     [
-                        restaurantId,
+                        restaurant.id,
+                        String(
+                            customer_name
+                        ).trim(),
+                        String(
+                            customer_phone
+                        ).trim(),
+                        String(
+                            customer_address
+                        ).trim(),
 
-                        customerName,
-                        customerPhone,
-                        customerAddress,
+                        Number(
+                            restaurant.lat
+                        ),
+                        Number(
+                            restaurant.lng
+                        ),
 
-                        pickupLat,
-                        pickupLng,
+                        Number(
+                            delivery_lat
+                        ),
+                        Number(
+                            delivery_lng
+                        ),
 
-                        deliveryLat,
-                        deliveryLng,
-
-                        foodPrice,
-                        deliveryFee,
-
-                        PLATFORM_FEE,
+                        food,
+                        delivery,
 
                         otp
                     ]
                 );
 
             const orderId =
-                Number(result.insertId);
+                result.insertId;
 
-            await addHistory(
+            await addStatusHistory(
                 connection,
                 orderId,
                 null,
                 "pending",
                 "restaurant",
-                restaurantId
+                restaurant.id
+            );
+
+            await connection.commit();
+
+            connection.release();
+
+            const order =
+                await getOrderById(
+                    orderId
+                );
+
+            emitOrderUpdate(order);
+
+            processOrderDispatch(
+                orderId
+            ).catch(console.error);
+
+            return sendSuccess(res, {
+                message:
+                    "Order created.",
+                order
+            });
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            connection.release();
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not create order."
+            );
+        }
+    }
+);
+/* =========================================================
+   DISPATCH CONFIG
+========================================================= */
+
+const OFFER_DURATION_MS = 20 * 1000;
+
+const MAX_DRIVER_LOCATION_AGE_SECONDS = 60;
+
+const SECOND_ORDER_MAX_DISTANCE_KM = 2.0;
+
+/*
+  Prevent two local dispatch workers
+  from processing the same order.
+*/
+const dispatchLocks = new Set();
+
+/* =========================================================
+   FIND ELIGIBLE DRIVERS
+========================================================= */
+
+async function findEligibleDrivers(
+    order,
+    connection = pool
+) {
+    const [drivers] =
+        await connection.execute(
+            `
+            SELECT *
+            FROM drivers
+            WHERE
+                is_online = 1
+                AND is_active = 1
+                AND lat IS NOT NULL
+                AND lng IS NOT NULL
+
+                AND last_location_update IS NOT NULL
+
+                AND last_location_update >=
+                    NOW() -
+                    INTERVAL ${MAX_DRIVER_LOCATION_AGE_SECONDS}
+                    SECOND
+
+                AND current_orders_count <
+                    max_concurrent_orders
+            `
+        );
+
+    const eligible = [];
+
+    for (const driver of drivers) {
+        const distance =
+            calculateDistance(
+                order.pickup_lat,
+                order.pickup_lng,
+                driver.lat,
+                driver.lng
+            );
+
+        const allowedRadius =
+            Math.min(
+                Number(
+                    driver.radius || 2.5
+                ),
+                20
+            );
+
+        if (
+            distance >
+            allowedRadius
+        ) {
+            continue;
+        }
+
+        /*
+          SECOND ORDER RULE
+        */
+
+        if (
+            Number(
+                driver.current_orders_count
+            ) >= 1
+        ) {
+            if (
+                Number(
+                    driver.max_concurrent_orders
+                ) < 2
+            ) {
+                continue;
+            }
+
+            const [
+                activeOrders
+            ] =
+                await connection.execute(
+                    `
+                    SELECT
+                        id,
+                        delivery_lat,
+                        delivery_lng
+                    FROM orders
+                    WHERE driver_id = ?
+                    AND status IN
+                    (
+                        'accepted',
+                        'picking_up',
+                        'delivering'
+                    )
+                    `,
+                    [driver.id]
+                );
+
+            if (
+                activeOrders.length === 0
+            ) {
+                continue;
+            }
+
+            let closeToExisting =
+                false;
+
+            for (
+                const active
+                of activeOrders
+            ) {
+                if (
+                    !isValidCoordinate(
+                        active.delivery_lat,
+                        active.delivery_lng
+                    )
+                ) {
+                    continue;
+                }
+
+                const distanceBetweenCustomers =
+                    calculateDistance(
+                        active.delivery_lat,
+                        active.delivery_lng,
+                        order.delivery_lat,
+                        order.delivery_lng
+                    );
+
+                if (
+                    distanceBetweenCustomers <=
+                    SECOND_ORDER_MAX_DISTANCE_KM
+                ) {
+                    closeToExisting = true;
+                    break;
+                }
+            }
+
+            if (
+                !closeToExisting
+            ) {
+                continue;
+            }
+        }
+
+        /*
+          NEVER offer the same order
+          to the same driver twice.
+        */
+
+        const [previous] =
+            await connection.execute(
+                `
+                SELECT id
+                FROM order_dispatch_log
+                WHERE order_id = ?
+                AND driver_id = ?
+                LIMIT 1
+                `,
+                [
+                    order.id,
+                    driver.id
+                ]
+            );
+
+        if (
+            previous.length > 0
+        ) {
+            continue;
+        }
+
+        eligible.push({
+            ...driver,
+            distance
+        });
+    }
+
+    eligible.sort(
+        (a, b) =>
+            Number(a.distance) -
+            Number(b.distance)
+    );
+
+    return eligible;
+}
+
+/* =========================================================
+   PROCESS ORDER DISPATCH
+========================================================= */
+
+async function processOrderDispatch(
+    orderId
+) {
+    const id =
+        Number(orderId);
+
+    if (
+        !Number.isInteger(id) ||
+        id <= 0
+    ) {
+        return;
+    }
+
+    if (
+        dispatchLocks.has(id)
+    ) {
+        return;
+    }
+
+    dispatchLocks.add(id);
+
+    try {
+        const connection =
+            await pool.getConnection();
+
+        try {
+            await connection.beginTransaction();
+
+            /*
+              Lock order.
+            */
+
+            const [rows] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [id]
+                );
+
+            const order =
+                rows[0];
+
+            if (!order) {
+                await connection.rollback();
+                return;
+            }
+
+            /*
+              Only pending orders
+              should receive a new offer.
+            */
+
+            if (
+                order.status !==
+                "pending"
+            ) {
+                await connection.rollback();
+                return;
+            }
+
+            /*
+              Find drivers while the order
+              is protected locally.
+            */
+
+            const eligible =
+                await findEligibleDrivers(
+                    order,
+                    connection
+                );
+
+            if (
+                eligible.length === 0
+            ) {
+                await connection.rollback();
+                return;
+            }
+
+            const driver =
+                eligible[0];
+
+            /*
+              Lock selected driver.
+            */
+
+            const [
+                driverRows
+            ] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM drivers
+                    WHERE id = ?
+                    AND is_online = 1
+                    AND is_active = 1
+                    FOR UPDATE
+                    `,
+                    [driver.id]
+                );
+
+            const lockedDriver =
+                driverRows[0];
+
+            if (!lockedDriver) {
+                await connection.rollback();
+
+                /*
+                  Retry once through scanner.
+                */
+                return;
+            }
+
+            if (
+                Number(
+                    lockedDriver.current_orders_count
+                ) >=
+                Number(
+                    lockedDriver.max_concurrent_orders
+                )
+            ) {
+                await connection.rollback();
+                return;
+            }
+
+            /*
+              Re-check location freshness
+              after locking driver.
+            */
+
+            if (
+                !lockedDriver.last_location_update
+            ) {
+                await connection.rollback();
+                return;
+            }
+
+            /*
+              Create 20-second offer.
+            */
+
+            const expiresAt =
+                new Date(
+                    Date.now() +
+                    OFFER_DURATION_MS
+                );
+
+            await connection.execute(
+                `
+                UPDATE orders
+                SET
+                    status = 'offered',
+                    offered_driver_id = ?,
+                    offer_expires_at = ?
+                WHERE id = ?
+                AND status = 'pending'
+                `,
+                [
+                    lockedDriver.id,
+                    expiresAt,
+                    id
+                ]
+            );
+
+            await connection.execute(
+                `
+                INSERT INTO order_dispatch_log
+                (
+                    order_id,
+                    driver_id,
+                    status
+                )
+                VALUES (?, ?, 'offered')
+                `,
+                [
+                    id,
+                    lockedDriver.id
+                ]
+            );
+
+            await addStatusHistory(
+                connection,
+                id,
+                "pending",
+                "offered",
+                "system",
+                null
             );
 
             await connection.commit();
 
             /*
-               بدء البحث عن السائق
+              Send offer AFTER commit.
             */
 
-            dispatchOrder(orderId)
-                .catch(console.error);
+            const offeredOrder =
+                await getOrderById(
+                    id
+                );
 
-            res.status(201).json({
-                success: true,
-
-                order_id:
-                    orderId,
-
-                message:
-                    "Order created successfully."
-            });
-
-        } catch (error) {
-
-            try {
-                await connection.rollback();
-            } catch {}
-
-            console.error(
-                "Create order:",
-                error
+            io.to(
+                driverRoom(
+                    lockedDriver.id
+                )
+            ).emit(
+                "order:offer",
+                offeredOrder
             );
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
+            emitOrderUpdate(
+                offeredOrder
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
 
+            throw error;
         } finally {
-
             connection.release();
         }
+    } catch (error) {
+        console.error(
+            "Dispatch error:",
+            error
+        );
+    } finally {
+        dispatchLocks.delete(id);
     }
-);
+}
 
-/* =====================================================
-   DRIVER ACCEPT
-===================================================== */
+/* =========================================================
+   EXPIRE ONE OFFER
+========================================================= */
 
-app.post(
-    "/api/driver/orders/accept",
-    authenticate("driver"),
-    async (req, res) => {
+async function expireOffer(
+    orderId
+) {
+    const connection =
+        await pool.getConnection();
 
-        const orderId =
-            Number(req.body.order_id);
+    let expiredDriverId =
+        null;
 
-        const driverId =
-            Number(req.user.id);
+    try {
+        await connection.beginTransaction();
 
-        if (!validId(orderId)) {
+        const [rows] =
+            await connection.execute(
+                `
+                SELECT *
+                FROM orders
+                WHERE id = ?
+                FOR UPDATE
+                `,
+                [orderId]
+            );
 
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
+        const order =
+            rows[0];
+
+        if (
+            !order ||
+            order.status !== "offered"
+        ) {
+            await connection.rollback();
+            return false;
         }
 
+        if (
+            !order.offer_expires_at ||
+            new Date(
+                order.offer_expires_at
+            ) > new Date()
+        ) {
+            await connection.rollback();
+            return false;
+        }
+
+        expiredDriverId =
+            order.offered_driver_id;
+
+        await connection.execute(
+            `
+            UPDATE order_dispatch_log
+            SET status = 'expired'
+            WHERE order_id = ?
+            AND driver_id = ?
+            AND status = 'offered'
+            `,
+            [
+                order.id,
+                order.offered_driver_id
+            ]
+        );
+
+        /*
+          Timeout counts as a missed offer,
+          but we do NOT punish the driver
+          automatically.
+        */
+
+        await connection.execute(
+            `
+            UPDATE orders
+            SET
+                status = 'pending',
+                offered_driver_id = NULL,
+                offer_expires_at = NULL
+            WHERE id = ?
+            `,
+            [order.id]
+        );
+
+        await addStatusHistory(
+            connection,
+            order.id,
+            "offered",
+            "pending",
+            "system",
+            null
+        );
+
+        await connection.commit();
+
+        const updated =
+            await getOrderById(
+                order.id
+            );
+
+        emitOrderUpdate(
+            updated
+        );
+
+        return true;
+    } catch (error) {
+        try {
+            await connection.rollback();
+        } catch (_) {}
+
+        console.error(
+            "Offer expiration error:",
+            error
+        );
+
+        return false;
+    } finally {
+        connection.release();
+    }
+}
+
+/* =========================================================
+   DRIVER ACCEPT ORDER
+========================================================= */
+
+app.post(
+    "/api/orders/:id/accept",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
         const connection =
-            await db.getConnection();
+            await pool.getConnection();
 
         try {
+            const orderId =
+                Number(req.params.id);
 
             await connection.beginTransaction();
 
@@ -2314,332 +2007,353 @@ app.post(
                     `
                     SELECT *
                     FROM orders
-
                     WHERE id = ?
-
                     FOR UPDATE
                     `,
                     [orderId]
                 );
-
-            if (!orders.length) {
-
-                await connection.rollback();
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
 
             const order =
                 orders[0];
 
-            /*
-               هذا العرض بالذات
-               موجه لهذا السائق
-            */
+            if (!order) {
+                await connection.rollback();
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
 
             if (
-                order.status !== "offered" ||
+                order.status !==
+                "offered"
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    409,
+                    "This order is no longer available."
+                );
+            }
+
+            if (
                 Number(
                     order.offered_driver_id
-                ) !== driverId
+                ) !==
+                Number(
+                    req.user.id
+                )
             ) {
-
                 await connection.rollback();
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Offer unavailable."
-                });
+                return sendError(
+                    res,
+                    403,
+                    "This order was not offered to you."
+                );
             }
-
-            /*
-               التأكد من أن الـ20 ثانية
-               لم تنته
-            */
-
-            const [notExpired] =
-                await connection.execute(
-                    `
-                    SELECT id
-
-                    FROM orders
-
-                    WHERE id = ?
-
-                    AND offer_expires_at > NOW()
-                    `,
-                    [orderId]
-                );
-
-            if (!notExpired.length) {
-
-                await connection.rollback();
-
-                await checkOfferExpiration(
-                    orderId,
-                    driverId
-                );
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Offer expired."
-                });
-            }
-
-            /*
-               قفل السائق
-            */
-
-            const [drivers] =
-                await connection.execute(
-                    `
-                    SELECT
-                        id,
-                        is_active,
-                        is_online,
-                        current_orders_count,
-                        max_concurrent_orders
-
-                    FROM drivers
-
-                    WHERE id = ?
-
-                    FOR UPDATE
-                    `,
-                    [driverId]
-                );
 
             if (
-                !drivers.length ||
-                Number(
-                    drivers[0].is_active
-                ) !== 1 ||
-                Number(
-                    drivers[0].is_online
-                ) !== 1
+                order.offer_expires_at &&
+                new Date(
+                    order.offer_expires_at
+                ) <= new Date()
             ) {
-
                 await connection.rollback();
 
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        "Driver is not available."
-                });
+                return sendError(
+                    res,
+                    409,
+                    "The offer has expired."
+                );
             }
 
-            const current =
-                Number(
-                    drivers[0]
-                        .current_orders_count
+            const [
+                drivers
+            ] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM drivers
+                    WHERE id = ?
+                    AND is_active = 1
+                    AND is_online = 1
+                    FOR UPDATE
+                    `,
+                    [req.user.id]
                 );
 
-            const max =
-                Number(
-                    drivers[0]
-                        .max_concurrent_orders
-                ) || 1;
+            const driver =
+                drivers[0];
 
-            /*
-               لا يسمح بتجاوز الحد.
-            */
-
-            if (current >= max) {
-
+            if (!driver) {
                 await connection.rollback();
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Driver cannot accept another order."
-                });
+                return sendError(
+                    res,
+                    404,
+                    "Driver not found."
+                );
+            }
+
+            if (
+                Number(
+                    driver.current_orders_count
+                ) >=
+                Number(
+                    driver.max_concurrent_orders
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    409,
+                    "Driver has reached the maximum number of orders."
+                );
             }
 
             /*
-               قبول الطلب
+              SECOND ORDER VALIDATION
             */
 
-            const [updated] =
+            if (
+                Number(
+                    driver.current_orders_count
+                ) >= 1
+            ) {
+                if (
+                    Number(
+                        driver.max_concurrent_orders
+                    ) < 2
+                ) {
+                    await connection.rollback();
+
+                    return sendError(
+                        res,
+                        409,
+                        "Driver cannot carry a second order."
+                    );
+                }
+
+                const [
+                    activeOrders
+                ] =
+                    await connection.execute(
+                        `
+                        SELECT
+                            id,
+                            delivery_lat,
+                            delivery_lng
+                        FROM orders
+                        WHERE driver_id = ?
+                        AND status IN
+                        (
+                            'accepted',
+                            'picking_up',
+                            'delivering'
+                        )
+                        FOR UPDATE
+                        `,
+                        [driver.id]
+                    );
+
+                let validSecondOrder =
+                    false;
+
+                for (
+                    const active
+                    of activeOrders
+                ) {
+                    if (
+                        !isValidCoordinate(
+                            active.delivery_lat,
+                            active.delivery_lng
+                        )
+                    ) {
+                        continue;
+                    }
+
+                    const distance =
+                        calculateDistance(
+                            active.delivery_lat,
+                            active.delivery_lng,
+                            order.delivery_lat,
+                            order.delivery_lng
+                        );
+
+                    if (
+                        distance <=
+                        SECOND_ORDER_MAX_DISTANCE_KM
+                    ) {
+                        validSecondOrder =
+                            true;
+                        break;
+                    }
+                }
+
+                if (
+                    !validSecondOrder
+                ) {
+                    await connection.rollback();
+
+                    return sendError(
+                        res,
+                        409,
+                        "The second order is too far from the existing delivery."
+                    );
+                }
+            }
+
+            /*
+              Accept atomically.
+            */
+
+            const [
+                updateResult
+            ] =
                 await connection.execute(
                     `
                     UPDATE orders
-
                     SET
-                        status = 'accepted',
                         driver_id = ?,
                         offered_driver_id = NULL,
-                        offer_expires_at = NULL,
-                        accepted_at = NOW()
-
+                        status = 'accepted',
+                        accepted_at = NOW(),
+                        offer_expires_at = NULL
                     WHERE id = ?
-
                     AND status = 'offered'
-
                     AND offered_driver_id = ?
                     `,
                     [
-                        driverId,
+                        driver.id,
                         orderId,
-                        driverId
+                        driver.id
                     ]
                 );
 
             if (
-                updated.affectedRows !== 1
+                updateResult.affectedRows !== 1
             ) {
-
                 await connection.rollback();
 
-                return res.status(409).json({
-                    success: false,
-                    message:
-                        "Offer was already handled."
-                });
+                return sendError(
+                    res,
+                    409,
+                    "Order was already taken."
+                );
             }
 
             await connection.execute(
                 `
                 UPDATE order_dispatch_log
-
                 SET status = 'accepted'
-
                 WHERE order_id = ?
                 AND driver_id = ?
                 AND status = 'offered'
                 `,
                 [
                     orderId,
-                    driverId
+                    driver.id
                 ]
             );
-
-            /*
-               زيادة الطلبات النشطة للسائق
-            */
 
             await connection.execute(
                 `
                 UPDATE drivers
-
                 SET current_orders_count =
                     current_orders_count + 1
-
                 WHERE id = ?
+                AND current_orders_count <
+                    max_concurrent_orders
                 `,
-                [driverId]
+                [driver.id]
             );
 
-            await addHistory(
+            await addStatusHistory(
                 connection,
                 orderId,
                 "offered",
                 "accepted",
                 "driver",
-                driverId
+                driver.id
             );
 
             await connection.commit();
 
-            /*
-               OTP يظهر للسائق
-            */
+            const updated =
+                await getOrderById(
+                    orderId
+                );
 
-            io.to(
-                `driver_${driverId}`
-            ).emit(
-                "order_accepted",
-                {
-                    order_id: orderId,
-
-                    otp_code:
-                        order.otp_code
-                }
+            emitOrderUpdate(
+                updated
             );
 
-            /*
-               المطعم يعرف أن سائقا قبل
-            */
-
             io.to(
-                `restaurant_${order.restaurant_id}`
+                driverRoom(
+                    driver.id
+                )
             ).emit(
-                "driver_assigned",
-                {
-                    order_id:
-                        orderId,
-
-                    driver_id:
-                        driverId
-                }
+                "order:accepted",
+                updated
             );
 
-            res.json({
-                success: true,
+            const freshDriver =
+                await getDriverById(
+                    driver.id
+                );
 
-                order_id:
-                    orderId,
+            emitDriverUpdate(
+                freshDriver
+            );
 
-                otp_code:
-                    order.otp_code
-            });
-
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Order accepted.",
+                    order: updated
+                }
+            );
         } catch (error) {
-
             try {
                 await connection.rollback();
-            } catch {}
+            } catch (_) {}
 
             console.error(
-                "Accept order:",
+                "Accept error:",
                 error
             );
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
+            return sendError(
+                res,
+                500,
+                "Could not accept order."
+            );
         } finally {
-
             connection.release();
         }
     }
 );
 
-/* =====================================================
-   DRIVER REJECT
-===================================================== */
+/* =========================================================
+   DRIVER REJECT ORDER
+========================================================= */
 
 app.post(
-    "/api/driver/orders/reject",
-    authenticate("driver"),
+    "/api/orders/:id/reject",
+    authenticate,
+    requireRole("driver"),
     async (req, res) => {
-
-        const orderId =
-            Number(req.body.order_id);
-
-        const driverId =
-            Number(req.user.id);
-
-        if (!validId(orderId)) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
-        }
-
         const connection =
-            await db.getConnection();
+            await pool.getConnection();
 
         try {
+            const orderId =
+                Number(req.params.id);
 
             await connection.beginTransaction();
 
@@ -2648,207 +2362,197 @@ app.post(
                     `
                     SELECT *
                     FROM orders
-
                     WHERE id = ?
-
                     FOR UPDATE
                     `,
                     [orderId]
                 );
 
-            if (!orders.length) {
-
-                await connection.rollback();
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
-
             const order =
                 orders[0];
 
+            if (!order) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
             if (
-                order.status !== "offered" ||
+                order.status !==
+                    "offered" ||
                 Number(
                     order.offered_driver_id
-                ) !== driverId
+                ) !==
+                    Number(
+                        req.user.id
+                    )
             ) {
-
                 await connection.rollback();
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Offer unavailable."
-                });
+                return sendError(
+                    res,
+                    409,
+                    "This order is not currently offered to you."
+                );
             }
 
-            const [notExpired] =
-                await connection.execute(
-                    `
-                    SELECT id
-
-                    FROM orders
-
-                    WHERE id = ?
-
-                    AND offer_expires_at > NOW()
-                    `,
-                    [orderId]
-                );
-
-            if (!notExpired.length) {
-
+            if (
+                order.offer_expires_at &&
+                new Date(
+                    order.offer_expires_at
+                ) <= new Date()
+            ) {
                 await connection.rollback();
 
-                await checkOfferExpiration(
-                    orderId,
-                    driverId
+                return sendError(
+                    res,
+                    409,
+                    "The offer has expired."
                 );
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Offer expired."
-                });
             }
-
-            /*
-               تسجيل الرفض
-            */
 
             await connection.execute(
                 `
                 UPDATE order_dispatch_log
-
                 SET status = 'rejected'
-
                 WHERE order_id = ?
                 AND driver_id = ?
                 AND status = 'offered'
                 `,
                 [
                     orderId,
-                    driverId
+                    req.user.id
                 ]
             );
 
             /*
-               الرفض ينقص نقطة
+              Rejection = -1 point.
+              Never below zero.
             */
 
             await connection.execute(
                 `
                 UPDATE drivers
-
                 SET driver_points =
                     GREATEST(
-                        0,
-                        driver_points - 1
+                        driver_points - 1,
+                        0
                     )
-
                 WHERE id = ?
                 `,
-                [driverId]
+                [req.user.id]
             );
 
             await connection.execute(
                 `
                 UPDATE orders
-
                 SET
                     status = 'pending',
                     offered_driver_id = NULL,
                     offer_expires_at = NULL
-
                 WHERE id = ?
                 `,
                 [orderId]
             );
 
-            await addHistory(
+            await addStatusHistory(
                 connection,
                 orderId,
                 "offered",
                 "pending",
                 "driver",
-                driverId
+                req.user.id
             );
 
             await connection.commit();
 
-            /*
-               السائق التالي
-            */
+            const updated =
+                await getOrderById(
+                    orderId
+                );
 
-            dispatchOrder(orderId)
-                .catch(console.error);
+            emitOrderUpdate(
+                updated
+            );
 
-            res.json({
-                success: true,
-                message:
-                    "Order rejected."
-            });
+            const driver =
+                await getDriverById(
+                    req.user.id
+                );
 
+            emitDriverUpdate(
+                driver
+            );
+
+            processOrderDispatch(
+                orderId
+            ).catch(console.error);
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Order rejected.",
+                    order: updated
+                }
+            );
         } catch (error) {
-
             try {
                 await connection.rollback();
-            } catch {}
+            } catch (_) {}
 
             console.error(
-                "Reject order:",
+                "Reject error:",
                 error
             );
 
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
+            return sendError(
+                res,
+                500,
+                "Could not reject order."
+            );
         } finally {
-
             connection.release();
         }
     }
 );
 
-/* =====================================================
-   RESTAURANT VERIFY OTP
-===================================================== */
+/* =========================================================
+   VERIFY OTP AT RESTAURANT
+========================================================= */
 
 app.post(
-    "/api/restaurant/orders/verify-otp",
-    authenticate("restaurant"),
+    "/api/orders/:id/verify-pickup",
+    authenticate,
+    requireRole("restaurant"),
     async (req, res) => {
-
-        const orderId =
-            Number(req.body.order_id);
-
-        const otp =
-            String(
-                req.body.otp_code || ""
-            ).trim();
-
-        if (
-            !validId(orderId) ||
-            !/^\d{4}$/.test(otp)
-        ) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid OTP."
-            });
-        }
-
         const connection =
-            await db.getConnection();
+            await pool.getConnection();
 
         try {
+            const orderId =
+                Number(req.params.id);
+
+            const {
+                otp_code
+            } = req.body;
+
+            if (
+                !otp_code ||
+                !/^\d{4}$/.test(
+                    String(otp_code)
+                )
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "OTP must contain exactly 4 digits."
+                );
+            }
 
             await connection.beginTransaction();
 
@@ -2857,116 +2561,1657 @@ app.post(
                     `
                     SELECT *
                     FROM orders
-
                     WHERE id = ?
-                    AND restaurant_id = ?
-
                     FOR UPDATE
                     `,
-                    [
-                        orderId,
-                        req.user.id
-                    ]
+                    [orderId]
                 );
-
-            if (!orders.length) {
-
-                await connection.rollback();
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
 
             const order =
                 orders[0];
 
-            /*
-               لا يمكن استعمال OTP
-               مرتين.
-            */
-
-            if (
-                order.status !== "accepted"
-            ) {
-
+            if (!order) {
                 await connection.rollback();
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Order is not ready for pickup."
-                });
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
             }
 
             if (
-                String(order.otp_code) !== otp
+                Number(
+                    order.restaurant_id
+                ) !==
+                Number(
+                    req.user.id
+                )
             ) {
-
                 await connection.rollback();
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Incorrect OTP."
-                });
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
             }
 
-            /*
-               هنا تم التأكد أن السائق
-               هو السائق الصحيح.
+            if (
+                order.status !==
+                "accepted"
+            ) {
+                await connection.rollback();
 
-               الآن:
-               السائق يدفع للمطعم:
+                return sendError(
+                    res,
+                    409,
+                    "Order is not ready for pickup verification."
+                );
+            }
 
-               سعر الطعام
-               +
-               1 دينار عمولتك
-            */
+            if (
+                String(order.otp_code) !==
+                String(otp_code)
+            ) {
+                await connection.rollback();
 
-            const amountToPayRestaurant =
-                Number(order.food_price) +
-                PLATFORM_FEE;
+                return sendError(
+                    res,
+                    400,
+                    "Incorrect OTP."
+                );
+            }
 
             await connection.execute(
                 `
                 UPDATE orders
-
                 SET
                     status = 'picking_up',
                     restaurant_paid_at = NOW(),
                     pickup_verified_at = NOW(),
-                    platform_fee_recorded = 1
-
+                    payment_status = 'paid'
                 WHERE id = ?
+                AND status = 'accepted'
                 `,
                 [orderId]
             );
 
             /*
-               إضافة الدين على المطعم
+              Prevent duplicate platform fee.
             */
+
+            if (
+                Number(
+                    order.platform_fee_recorded
+                ) === 0
+            ) {
+                await connection.execute(
+                    `
+                    UPDATE restaurants
+                    SET balance_due =
+                        balance_due +
+                        ?
+                    WHERE id = ?
+                    `,
+                    [
+                        Number(
+                            order.platform_fee
+                        ),
+                        order.restaurant_id
+                    ]
+                );
+
+                await connection.execute(
+                    `
+                    INSERT INTO restaurant_transactions
+                    (
+                        restaurant_id,
+                        order_id,
+                        amount,
+                        type,
+                        note
+                    )
+                    VALUES (?, ?, ?, 'platform_fee', ?)
+                    `,
+                    [
+                        order.restaurant_id,
+                        orderId,
+                        Number(
+                            order.platform_fee
+                        ),
+                        "Platform delivery fee"
+                    ]
+                );
+
+                await connection.execute(
+                    `
+                    UPDATE orders
+                    SET platform_fee_recorded = 1
+                    WHERE id = ?
+                    `,
+                    [orderId]
+                );
+            }
+
+            await addStatusHistory(
+                connection,
+                orderId,
+                "accepted",
+                "picking_up",
+                "restaurant",
+                req.user.id
+            );
+
+            await connection.commit();
+
+            const updated =
+                await getOrderById(
+                    orderId
+                );
+
+            emitOrderUpdate(
+                updated
+            );
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Pickup verified successfully.",
+                    order: updated
+                }
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not verify pickup."
+            );
+        } finally {
+            connection.release();
+        }
+    }
+);
+
+/* =========================================================
+   DRIVER START DELIVERY
+========================================================= */
+
+app.post(
+    "/api/orders/:id/start-delivery",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
+        const connection =
+            await pool.getConnection();
+
+        try {
+            const orderId =
+                Number(req.params.id);
+
+            await connection.beginTransaction();
+
+            const [orders] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [orderId]
+                );
+
+            const order =
+                orders[0];
+
+            if (!order) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
+            if (
+                Number(
+                    order.driver_id
+                ) !==
+                Number(
+                    req.user.id
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    403,
+                    "This order does not belong to you."
+                );
+            }
+
+            if (
+                order.status !==
+                "picking_up"
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    409,
+                    "Order is not ready for delivery."
+                );
+            }
 
             await connection.execute(
                 `
-                UPDATE restaurants
+                UPDATE orders
+                SET
+                    status = 'delivering',
+                    delivery_started_at = NOW()
+                WHERE id = ?
+                AND status = 'picking_up'
+                `,
+                [orderId]
+            );
 
-                SET balance_due =
-                    balance_due + ?
+            await addStatusHistory(
+                connection,
+                orderId,
+                "picking_up",
+                "delivering",
+                "driver",
+                req.user.id
+            );
 
+            await connection.commit();
+
+            const updated =
+                await getOrderById(
+                    orderId
+                );
+
+            emitOrderUpdate(
+                updated
+            );
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Delivery started.",
+                    order: updated
+                }
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not start delivery."
+            );
+        } finally {
+            connection.release();
+        }
+    }
+);
+
+/* =========================================================
+   COMPLETE DELIVERY
+========================================================= */
+
+app.post(
+    "/api/orders/:id/complete",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
+        const connection =
+            await pool.getConnection();
+
+        try {
+            const orderId =
+                Number(req.params.id);
+
+            await connection.beginTransaction();
+
+            const [orders] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [orderId]
+                );
+
+            const order =
+                orders[0];
+
+            if (!order) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
+            if (
+                Number(
+                    order.driver_id
+                ) !==
+                Number(
+                    req.user.id
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    403,
+                    "This order does not belong to you."
+                );
+            }
+
+            if (
+                order.status !==
+                "delivering"
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    409,
+                    "Order is not currently being delivered."
+                );
+            }
+
+            const driverEarning =
+                Number(
+                    order.delivery_fee
+                );
+
+            await connection.execute(
+                `
+                UPDATE orders
+                SET
+                    status = 'completed',
+                    completed_at = NOW()
+                WHERE id = ?
+                AND status = 'delivering'
+                `,
+                [orderId]
+            );
+
+            await connection.execute(
+                `
+                UPDATE drivers
+                SET
+                    current_orders_count =
+                        GREATEST(
+                            current_orders_count - 1,
+                            0
+                        ),
+
+                    wallet_balance =
+                        wallet_balance + ?,
+
+                    total_earnings =
+                        total_earnings + ?
                 WHERE id = ?
                 `,
                 [
-                    PLATFORM_FEE,
+                    driverEarning,
+                    driverEarning,
                     req.user.id
                 ]
             );
 
+            if (
+                driverEarning > 0
+            ) {
+                await connection.execute(
+                    `
+                    INSERT INTO driver_transactions
+                    (
+                        driver_id,
+                        order_id,
+                        amount,
+                        type,
+                        note
+                    )
+                    VALUES (?, ?, ?, 'delivery_earning', ?)
+                    `,
+                    [
+                        req.user.id,
+                        orderId,
+                        driverEarning,
+                        "Delivery earning"
+                    ]
+                );
+            }
+
+            await addStatusHistory(
+                connection,
+                orderId,
+                "delivering",
+                "completed",
+                "driver",
+                req.user.id
+            );
+
+            await connection.commit();
+
+            const updated =
+                await getOrderById(
+                    orderId
+                );
+
+            emitOrderUpdate(
+                updated
+            );
+
+            const driver =
+                await getDriverById(
+                    req.user.id
+                );
+
+            emitDriverUpdate(
+                driver
+            );
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Order completed.",
+                    earning:
+                        driverEarning,
+                    order: updated
+                }
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not complete order."
+            );
+        } finally {
+            connection.release();
+        }
+    }
+);
+/* =========================================================
+   CANCEL ORDER
+========================================================= */
+
+app.post(
+    "/api/orders/:id/cancel",
+    authenticate,
+    requireRole(
+        "restaurant",
+        "admin"
+    ),
+    async (req, res) => {
+        const connection =
+            await pool.getConnection();
+
+        try {
+            const orderId =
+                Number(req.params.id);
+
+            const reason =
+                String(
+                    req.body.reason ||
+                    "Cancelled"
+                ).slice(0, 500);
+
+            await connection.beginTransaction();
+
+            const [orders] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [orderId]
+                );
+
+            const order =
+                orders[0];
+
+            if (!order) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
+            if (
+                req.user.role ===
+                    "restaurant" &&
+                Number(
+                    order.restaurant_id
+                ) !==
+                    Number(
+                        req.user.id
+                    )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
+            }
+
+            if (
+                [
+                    "completed",
+                    "cancelled"
+                ].includes(
+                    order.status
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    409,
+                    "Order cannot be cancelled."
+                );
+            }
+
+            await connection.execute(
+                `
+                UPDATE orders
+                SET
+                    status = 'cancelled',
+                    cancelled_at = NOW(),
+                    cancellation_reason = ?,
+                    offered_driver_id = NULL,
+                    offer_expires_at = NULL
+                WHERE id = ?
+                `,
+                [
+                    reason,
+                    orderId
+                ]
+            );
+
             /*
-               تسجيل العمولة
+              Release driver's active slot
+              only if an actual driver owns
+              the order.
             */
+
+            if (
+                order.driver_id
+            ) {
+                await connection.execute(
+                    `
+                    UPDATE drivers
+                    SET current_orders_count =
+                        GREATEST(
+                            current_orders_count - 1,
+                            0
+                        )
+                    WHERE id = ?
+                    `,
+                    [
+                        order.driver_id
+                    ]
+                );
+            }
+
+            /*
+              Refund platform fee exactly once.
+            */
+
+            if (
+                Number(
+                    order.platform_fee_recorded
+                ) === 1
+            ) {
+                const fee =
+                    Number(
+                        order.platform_fee
+                    );
+
+                await connection.execute(
+                    `
+                    UPDATE restaurants
+                    SET balance_due =
+                        GREATEST(
+                            balance_due - ?,
+                            0
+                        )
+                    WHERE id = ?
+                    `,
+                    [
+                        fee,
+                        order.restaurant_id
+                    ]
+                );
+
+                await connection.execute(
+                    `
+                    INSERT INTO restaurant_transactions
+                    (
+                        restaurant_id,
+                        order_id,
+                        amount,
+                        type,
+                        note
+                    )
+                    VALUES (?, ?, ?, 'adjustment', ?)
+                    `,
+                    [
+                        order.restaurant_id,
+                        orderId,
+                        -fee,
+                        "Refund of platform fee after cancellation"
+                    ]
+                );
+
+                await connection.execute(
+                    `
+                    UPDATE orders
+                    SET platform_fee_recorded = 0
+                    WHERE id = ?
+                    `,
+                    [orderId]
+                );
+            }
+
+            await addStatusHistory(
+                connection,
+                orderId,
+                order.status,
+                "cancelled",
+                req.user.role,
+                req.user.id
+            );
+
+            await connection.commit();
+
+            const updated =
+                await getOrderById(
+                    orderId
+                );
+
+            emitOrderUpdate(
+                updated
+            );
+
+            if (
+                order.driver_id
+            ) {
+                const driver =
+                    await getDriverById(
+                        order.driver_id
+                    );
+
+                emitDriverUpdate(
+                    driver
+                );
+            }
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Order cancelled.",
+                    order: updated
+                }
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not cancel order."
+            );
+        } finally {
+            connection.release();
+        }
+    }
+);
+
+/* =========================================================
+   GET ORDER
+========================================================= */
+
+app.get(
+    "/api/orders/:id",
+    authenticate,
+    async (req, res) => {
+        try {
+            const orderId =
+                Number(req.params.id);
+
+            const order =
+                await getOrderById(
+                    orderId
+                );
+
+            if (!order) {
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
+            if (
+                req.user.role ===
+                    "restaurant" &&
+                Number(
+                    order.restaurant_id
+                ) !==
+                    Number(
+                        req.user.id
+                    )
+            ) {
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
+            }
+
+            if (
+                req.user.role ===
+                    "driver" &&
+                Number(
+                    order.driver_id
+                ) !==
+                    Number(
+                        req.user.id
+                    ) &&
+                Number(
+                    order.offered_driver_id
+                ) !==
+                    Number(
+                        req.user.id
+                    )
+            ) {
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
+            }
+
+            return sendSuccess(
+                res,
+                {
+                    order
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get order."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   RESTAURANT ORDERS
+========================================================= */
+
+app.get(
+    "/api/restaurant/orders",
+    authenticate,
+    requireRole("restaurant"),
+    async (req, res) => {
+        try {
+            const limit =
+                Math.min(
+                    Math.max(
+                        Number(
+                            req.query.limit ||
+                            100
+                        ),
+                        1
+                    ),
+                    500
+                );
+
+            const [
+                orders
+            ] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE restaurant_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ${limit}
+                    `,
+                    [req.user.id]
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    orders
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get restaurant orders."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   DRIVER ORDERS
+========================================================= */
+
+app.get(
+    "/api/driver/orders",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
+        try {
+            const [
+                orders
+            ] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM orders
+                    WHERE
+                        driver_id = ?
+                        OR offered_driver_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 500
+                    `,
+                    [
+                        req.user.id,
+                        req.user.id
+                    ]
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    orders
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get driver orders."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ADMIN ORDERS
+========================================================= */
+
+app.get(
+    "/api/admin/orders",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const [
+                orders
+            ] =
+                await pool.execute(
+                    `
+                    SELECT
+                        o.*,
+                        r.name AS restaurant_name,
+                        r.phone AS restaurant_phone,
+                        d.name AS driver_name,
+                        d.phone AS driver_phone
+                    FROM orders o
+                    JOIN restaurants r
+                        ON r.id = o.restaurant_id
+                    LEFT JOIN drivers d
+                        ON d.id = o.driver_id
+                    ORDER BY
+                        o.created_at DESC
+                    LIMIT 1000
+                    `
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    orders
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get orders."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ORDER HISTORY
+========================================================= */
+
+app.get(
+    "/api/orders/:id/history",
+    authenticate,
+    async (req, res) => {
+        try {
+            const orderId =
+                Number(req.params.id);
+
+            const order =
+                await getOrderById(
+                    orderId
+                );
+
+            if (!order) {
+                return sendError(
+                    res,
+                    404,
+                    "Order not found."
+                );
+            }
+
+            if (
+                req.user.role ===
+                    "restaurant" &&
+                Number(
+                    order.restaurant_id
+                ) !==
+                    Number(
+                        req.user.id
+                    )
+            ) {
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
+            }
+
+            if (
+                req.user.role ===
+                    "driver" &&
+                Number(
+                    order.driver_id
+                ) !==
+                    Number(
+                        req.user.id
+                    ) &&
+                Number(
+                    order.offered_driver_id
+                ) !==
+                    Number(
+                        req.user.id
+                    )
+            ) {
+                return sendError(
+                    res,
+                    403,
+                    "Access denied."
+                );
+            }
+
+            const [
+                history
+            ] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM order_status_history
+                    WHERE order_id = ?
+                    ORDER BY created_at ASC
+                    `,
+                    [orderId]
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    history
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get order history."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   RESTAURANT DASHBOARD
+========================================================= */
+
+app.get(
+    "/api/restaurant/dashboard",
+    authenticate,
+    requireRole("restaurant"),
+    async (req, res) => {
+        try {
+            const restaurantId =
+                req.user.id;
+
+            const [[today]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        COUNT(*) AS orders_today,
+
+                        COALESCE(
+                            SUM(food_price),
+                            0
+                        ) AS food_total_today,
+
+                        COALESCE(
+                            SUM(delivery_fee),
+                            0
+                        ) AS delivery_total_today,
+
+                        COALESCE(
+                            SUM(platform_fee),
+                            0
+                        ) AS platform_fees_today
+
+                    FROM orders
+                    WHERE restaurant_id = ?
+
+                    AND DATE(created_at) =
+                        CURDATE()
+
+                    AND status <>
+                        'cancelled'
+                    `,
+                    [restaurantId]
+                );
+
+            const [[balance]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        balance_due
+                    FROM restaurants
+                    WHERE id = ?
+                    `,
+                    [restaurantId]
+                );
+
+            const [[drivers]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        COUNT(
+                            DISTINCT driver_id
+                        ) AS active_drivers
+                    FROM orders
+                    WHERE restaurant_id = ?
+                    AND status IN
+                    (
+                        'accepted',
+                        'picking_up',
+                        'delivering'
+                    )
+                    AND driver_id IS NOT NULL
+                    `,
+                    [restaurantId]
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    orders_today:
+                        Number(
+                            today.orders_today
+                        ),
+
+                    food_total_today:
+                        Number(
+                            today.food_total_today
+                        ),
+
+                    delivery_total_today:
+                        Number(
+                            today.delivery_total_today
+                        ),
+
+                    platform_fees_today:
+                        Number(
+                            today.platform_fees_today
+                        ),
+
+                    balance_due:
+                        Number(
+                            balance?.balance_due ||
+                            0
+                        ),
+
+                    active_drivers:
+                        Number(
+                            drivers.active_drivers
+                        )
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get restaurant dashboard."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   DRIVER DASHBOARD
+========================================================= */
+
+app.get(
+    "/api/driver/dashboard",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
+        try {
+            const driverId =
+                req.user.id;
+
+            const [[today]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        COUNT(*) AS orders_today,
+
+                        COALESCE(
+                            SUM(delivery_fee),
+                            0
+                        ) AS earnings_today
+
+                    FROM orders
+
+                    WHERE driver_id = ?
+
+                    AND DATE(completed_at) =
+                        CURDATE()
+
+                    AND status =
+                        'completed'
+                    `,
+                    [driverId]
+                );
+
+            const [[driver]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        current_orders_count,
+                        max_concurrent_orders,
+                        wallet_balance,
+                        total_earnings,
+                        driver_points,
+                        is_online
+                    FROM drivers
+                    WHERE id = ?
+                    `,
+                    [driverId]
+                );
+
+            if (!driver) {
+                return sendError(
+                    res,
+                    404,
+                    "Driver not found."
+                );
+            }
+
+            return sendSuccess(
+                res,
+                {
+                    orders_today:
+                        Number(
+                            today.orders_today
+                        ),
+
+                    earnings_today:
+                        Number(
+                            today.earnings_today
+                        ),
+
+                    current_orders_count:
+                        Number(
+                            driver.current_orders_count
+                        ),
+
+                    max_concurrent_orders:
+                        Number(
+                            driver.max_concurrent_orders
+                        ),
+
+                    wallet_balance:
+                        Number(
+                            driver.wallet_balance
+                        ),
+
+                    total_earnings:
+                        Number(
+                            driver.total_earnings
+                        ),
+
+                    driver_points:
+                        Number(
+                            driver.driver_points
+                        ),
+
+                    is_online:
+                        Boolean(
+                            driver.is_online
+                        )
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get driver dashboard."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ADMIN DASHBOARD
+========================================================= */
+
+app.get(
+    "/api/admin/dashboard",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const [[stats]] =
+                await pool.execute(
+                    `
+                    SELECT
+
+                    (
+                        SELECT COUNT(*)
+                        FROM restaurants
+                        WHERE is_active = 1
+                    ) AS restaurants_count,
+
+                    (
+                        SELECT COUNT(*)
+                        FROM drivers
+                        WHERE is_active = 1
+                    ) AS drivers_count,
+
+                    (
+                        SELECT COUNT(*)
+                        FROM drivers
+                        WHERE
+                            is_active = 1
+                            AND is_online = 1
+                    ) AS online_drivers,
+
+                    (
+                        SELECT COUNT(*)
+                        FROM orders
+                        WHERE
+                            DATE(created_at) =
+                            CURDATE()
+                    ) AS orders_today,
+
+                    (
+                        SELECT COALESCE(
+                            SUM(platform_fee),
+                            0
+                        )
+                        FROM orders
+                        WHERE
+                            DATE(created_at) =
+                            CURDATE()
+                            AND status <>
+                            'cancelled'
+                    ) AS revenue_today,
+
+                    (
+                        SELECT COALESCE(
+                            SUM(
+                                CASE
+                                    WHEN type =
+                                        'platform_fee'
+                                    THEN amount
+                                    WHEN type =
+                                        'adjustment'
+                                    THEN amount
+                                    ELSE 0
+                                END
+                            ),
+                            0
+                        )
+                        FROM restaurant_transactions
+                    ) AS revenue_total
+                    `
+                );
+
+            const [[balances]] =
+                await pool.execute(
+                    `
+                    SELECT
+                        COALESCE(
+                            SUM(balance_due),
+                            0
+                        ) AS restaurants_balance_due
+                    FROM restaurants
+                    WHERE is_active = 1
+                    `
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    restaurants_count:
+                        Number(
+                            stats.restaurants_count
+                        ),
+
+                    drivers_count:
+                        Number(
+                            stats.drivers_count
+                        ),
+
+                    online_drivers:
+                        Number(
+                            stats.online_drivers
+                        ),
+
+                    orders_today:
+                        Number(
+                            stats.orders_today
+                        ),
+
+                    revenue_today:
+                        Number(
+                            stats.revenue_today
+                        ),
+
+                    revenue_total:
+                        Number(
+                            stats.revenue_total
+                        ),
+
+                    restaurants_balance_due:
+                        Number(
+                            balances.restaurants_balance_due
+                        )
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get admin dashboard."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ADMIN - ALL RESTAURANTS
+========================================================= */
+
+app.get(
+    "/api/admin/restaurants",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const [
+                restaurants
+            ] =
+                await pool.execute(
+                    `
+                    SELECT
+                        id,
+                        name,
+                        phone,
+                        address,
+                        lat,
+                        lng,
+                        balance_due,
+                        is_active,
+                        created_at,
+                        updated_at
+                    FROM restaurants
+                    ORDER BY created_at DESC
+                    `
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    restaurants
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get restaurants."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ADMIN - ALL DRIVERS
+========================================================= */
+
+app.get(
+    "/api/admin/drivers",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        try {
+            const [
+                drivers
+            ] =
+                await pool.execute(
+                    `
+                    SELECT
+                        id,
+                        name,
+                        phone,
+                        vehicle,
+                        lat,
+                        lng,
+                        last_location_update,
+                        is_online,
+                        is_active,
+                        current_orders_count,
+                        max_concurrent_orders,
+                        radius,
+                        driver_points,
+                        wallet_balance,
+                        total_earnings,
+                        created_at,
+                        updated_at
+                    FROM drivers
+                    ORDER BY created_at DESC
+                    `
+                );
+
+            return sendSuccess(
+                res,
+                {
+                    drivers
+                }
+            );
+        } catch (error) {
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not get drivers."
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ADMIN - RESTAURANT PAYMENT
+========================================================= */
+
+app.post(
+    "/api/admin/restaurants/:id/payment",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        const connection =
+            await pool.getConnection();
+
+        try {
+            const restaurantId =
+                Number(req.params.id);
+
+            const amount =
+                Number(
+                    req.body.amount
+                );
+
+            if (
+                !Number.isFinite(amount) ||
+                amount <= 0
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Invalid payment amount."
+                );
+            }
+
+            await connection.beginTransaction();
+
+            const [rows] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM restaurants
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [restaurantId]
+                );
+
+            const restaurant =
+                rows[0];
+
+            if (!restaurant) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Restaurant not found."
+                );
+            }
+
+            if (
+                amount >
+                Number(
+                    restaurant.balance_due
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    400,
+                    "Payment exceeds restaurant balance."
+                );
+            }
+
+            await connection.execute(
+                `
+                UPDATE restaurants
+                SET balance_due =
+                    balance_due - ?
+                WHERE id = ?
+                `,
+                [
+                    amount,
+                    restaurantId
+                ]
+            );
 
             await connection.execute(
                 `
@@ -2978,359 +4223,212 @@ app.post(
                     type,
                     note
                 )
-
-                VALUES
-                (
-                    ?,
-                    ?,
-                    ?,
-                    'platform_fee',
-                    ?
-                )
+                VALUES (?, NULL, ?, 'payment', ?)
                 `,
                 [
-                    req.user.id,
-                    orderId,
-                    PLATFORM_FEE,
-                    `Platform fee for order #${orderId}`
+                    restaurantId,
+                    -amount,
+                    "Restaurant payment received"
                 ]
             );
 
-            await addHistory(
-                connection,
-                orderId,
-                "accepted",
-                "picking_up",
-                "restaurant",
-                req.user.id
-            );
-
             await connection.commit();
 
-            /*
-               إخبار السائق:
-               OTP صحيح
-               يمكنه أخذ الطعام
-            */
-
-            io.to(
-                `driver_${order.driver_id}`
-            ).emit(
-                "pickup_verified",
-                {
-                    order_id:
-                        orderId,
-
-                    amount_to_pay_restaurant:
-                        amountToPayRestaurant,
-
-                    food_price:
-                        Number(order.food_price),
-
-                    platform_fee:
-                        PLATFORM_FEE
-                }
-            );
-
-            res.json({
-                success: true,
-
-                message:
-                    "OTP verified. Pickup confirmed.",
-
-                amount_to_pay_restaurant:
-                    amountToPayRestaurant
-            });
-
-        } catch (error) {
-
-            try {
-                await connection.rollback();
-            } catch {}
-
-            console.error(
-                "OTP verification:",
-                error
-            );
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
-        } finally {
-
-            connection.release();
-        }
-    }
-);
-/* =====================================================
-   DRIVER START DELIVERY
-===================================================== */
-
-app.post(
-    "/api/driver/orders/start",
-    authenticate("driver"),
-    async (req, res) => {
-
-        const orderId =
-            Number(req.body.order_id);
-
-        if (!validId(orderId)) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
-        }
-
-        const connection =
-            await db.getConnection();
-
-        try {
-
-            await connection.beginTransaction();
-
-            const [orders] =
-                await connection.execute(
-                    `
-                    SELECT *
-
-                    FROM orders
-
-                    WHERE id = ?
-                    AND driver_id = ?
-
-                    FOR UPDATE
-                    `,
-                    [
-                        orderId,
-                        req.user.id
-                    ]
+            const updated =
+                await getRestaurantById(
+                    restaurantId
                 );
 
-            if (!orders.length) {
-
-                await connection.rollback();
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
-
-            const order =
-                orders[0];
-
-            if (
-                order.status !==
-                "picking_up"
-            ) {
-
-                await connection.rollback();
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Order is not ready."
-                });
-            }
-
-            await connection.execute(
-                `
-                UPDATE orders
-
-                SET
-                    status = 'delivering',
-                    delivery_started_at = NOW()
-
-                WHERE id = ?
-                `,
-                [orderId]
-            );
-
-            await addHistory(
-                connection,
-                orderId,
-                "picking_up",
-                "delivering",
-                "driver",
-                req.user.id
-            );
-
-            await connection.commit();
-
-            /*
-               المطعم يعرف أن التوصيل بدأ
-            */
-
-            io.to(
-                `restaurant_${order.restaurant_id}`
-            ).emit(
-                "delivery_started",
+            return sendSuccess(
+                res,
                 {
-                    order_id:
-                        orderId
+                    message:
+                        "Payment recorded.",
+                    restaurant:
+                        updated
                 }
             );
-
-            res.json({
-                success: true,
-                message:
-                    "Delivery started."
-            });
-
         } catch (error) {
-
             try {
                 await connection.rollback();
-            } catch {}
+            } catch (_) {}
 
-            console.error(
-                "Start delivery:",
-                error
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not record payment."
             );
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
         } finally {
-
             connection.release();
         }
     }
 );
 
-/* =====================================================
-   DRIVER COMPLETE
-===================================================== */
+/* =========================================================
+   TRANSACTIONS
+========================================================= */
 
-app.post(
-    "/api/driver/orders/complete",
-    authenticate("driver"),
+app.get(
+    "/api/restaurant/transactions",
+    authenticate,
+    requireRole("restaurant"),
     async (req, res) => {
-
-        const orderId =
-            Number(req.body.order_id);
-
-        if (!validId(orderId)) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
-        }
-
-        const connection =
-            await db.getConnection();
-
         try {
-
-            await connection.beginTransaction();
-
-            const [orders] =
-                await connection.execute(
+            const [
+                transactions
+            ] =
+                await pool.execute(
                     `
                     SELECT *
-
-                    FROM orders
-
-                    WHERE id = ?
-                    AND driver_id = ?
-
-                    FOR UPDATE
+                    FROM restaurant_transactions
+                    WHERE restaurant_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1000
                     `,
-                    [
-                        orderId,
-                        req.user.id
-                    ]
+                    [req.user.id]
                 );
 
-            if (!orders.length) {
+            return sendSuccess(
+                res,
+                {
+                    transactions
+                }
+            );
+        } catch (error) {
+            console.error(error);
 
-                await connection.rollback();
+            return sendError(
+                res,
+                500,
+                "Could not get transactions."
+            );
+        }
+    }
+);
 
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
+app.get(
+    "/api/driver/transactions",
+    authenticate,
+    requireRole("driver"),
+    async (req, res) => {
+        try {
+            const [
+                transactions
+            ] =
+                await pool.execute(
+                    `
+                    SELECT *
+                    FROM driver_transactions
+                    WHERE driver_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1000
+                    `,
+                    [req.user.id]
+                );
 
-            const order =
-                orders[0];
+            return sendSuccess(
+                res,
+                {
+                    transactions
+                }
+            );
+        } catch (error) {
+            console.error(error);
 
-            if (
-                order.status !==
-                "delivering"
-            ) {
+            return sendError(
+                res,
+                500,
+                "Could not get transactions."
+            );
+        }
+    }
+);
 
-                await connection.rollback();
+/* =========================================================
+   ADMIN DRIVER WITHDRAWAL
+========================================================= */
 
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Order is not being delivered."
-                });
-            }
+app.post(
+    "/api/admin/drivers/:id/withdrawal",
+    authenticate,
+    requireRole("admin"),
+    async (req, res) => {
+        const connection =
+            await pool.getConnection();
 
-            /*
-               دخل السائق
-               = delivery_fee
-            */
+        try {
+            const driverId =
+                Number(req.params.id);
 
-            const driverEarnings =
+            const amount =
                 Number(
-                    order.delivery_fee
+                    req.body.amount
                 );
 
-            await connection.execute(
-                `
-                UPDATE orders
+            if (
+                !Number.isFinite(amount) ||
+                amount <= 0
+            ) {
+                return sendError(
+                    res,
+                    400,
+                    "Invalid withdrawal amount."
+                );
+            }
 
-                SET
-                    status = 'completed',
-                    payment_status = 'paid',
-                    completed_at = NOW()
+            await connection.beginTransaction();
 
-                WHERE id = ?
-                `,
-                [orderId]
-            );
+            const [rows] =
+                await connection.execute(
+                    `
+                    SELECT *
+                    FROM drivers
+                    WHERE id = ?
+                    FOR UPDATE
+                    `,
+                    [driverId]
+                );
 
-            /*
-               إنقاص الطلبات النشطة
-               وزيادة دخل السائق
-            */
+            const driver =
+                rows[0];
+
+            if (!driver) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    404,
+                    "Driver not found."
+                );
+            }
+
+            if (
+                amount >
+                Number(
+                    driver.wallet_balance
+                )
+            ) {
+                await connection.rollback();
+
+                return sendError(
+                    res,
+                    400,
+                    "Withdrawal exceeds driver balance."
+                );
+            }
 
             await connection.execute(
                 `
                 UPDATE drivers
-
-                SET
-                    current_orders_count =
-                        GREATEST(
-                            0,
-                            current_orders_count - 1
-                        ),
-
-                    wallet_balance =
-                        wallet_balance + ?,
-
-                    total_earnings =
-                        total_earnings + ?
-
+                SET wallet_balance =
+                    wallet_balance - ?
                 WHERE id = ?
                 `,
                 [
-                    driverEarnings,
-                    driverEarnings,
-                    req.user.id
+                    amount,
+                    driverId
                 ]
             );
 
@@ -3344,1293 +4442,436 @@ app.post(
                     type,
                     note
                 )
+                VALUES (?, NULL, ?, 'withdrawal', ?)
+                `,
+                [
+                    driverId,
+                    -amount,
+                    "Driver withdrawal"
+                ]
+            );
 
-                VALUES
-                (
-                    ?,
-                    ?,
-                    ?,
-                    'delivery_earning',
-                    ?
+            await connection.commit();
+
+            return sendSuccess(
+                res,
+                {
+                    message:
+                        "Withdrawal recorded."
+                }
+            );
+        } catch (error) {
+            try {
+                await connection.rollback();
+            } catch (_) {}
+
+            console.error(error);
+
+            return sendError(
+                res,
+                500,
+                "Could not record withdrawal."
+            );
+        } finally {
+            connection.release();
+        }
+    }
+);
+
+/* =========================================================
+   SOCKET.IO AUTHENTICATION
+========================================================= */
+
+io.use(
+    (socket, next) => {
+        try {
+            const token =
+                socket.handshake.auth?.token ||
+                socket.handshake
+                    .headers
+                    ?.authorization
+                    ?.replace(
+                        "Bearer ",
+                        ""
+                    );
+
+            if (!token) {
+                return next(
+                    new Error(
+                        "Authentication required."
+                    )
+                );
+            }
+
+            const decoded =
+                jwt.verify(
+                    token,
+                    JWT_SECRET
+                );
+
+            socket.user =
+                decoded;
+
+            next();
+        } catch (_) {
+            next(
+                new Error(
+                    "Invalid token."
                 )
-                `,
-                [
-                    req.user.id,
-                    orderId,
-                    driverEarnings,
-                    `Delivery earning for order #${orderId}`
-                ]
             );
-
-            await addHistory(
-                connection,
-                orderId,
-                "delivering",
-                "completed",
-                "driver",
-                req.user.id
-            );
-
-            await connection.commit();
-
-            io.to(
-                `restaurant_${order.restaurant_id}`
-            ).emit(
-                "order_completed",
-                {
-                    order_id:
-                        orderId
-                }
-            );
-
-            io.to(
-                "admin_room"
-            ).emit(
-                "order_completed",
-                {
-                    order_id:
-                        orderId
-                }
-            );
-
-            res.json({
-                success: true,
-
-                message:
-                    "Order completed.",
-
-                driver_earning:
-                    driverEarnings
-            });
-
-        } catch (error) {
-
-            try {
-                await connection.rollback();
-            } catch {}
-
-            console.error(
-                "Complete order:",
-                error
-            );
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
-        } finally {
-
-            connection.release();
         }
     }
 );
 
-/* =====================================================
-   RESTAURANT CANCEL
-===================================================== */
+/* =========================================================
+   SOCKET.IO CONNECTION
+========================================================= */
 
-app.post(
-    "/api/restaurant/orders/cancel",
-    authenticate("restaurant"),
-    async (req, res) => {
+io.on(
+    "connection",
+    socket => {
+        const user =
+            socket.user;
 
-        const orderId =
-            Number(req.body.order_id);
+        console.log(
+            `Socket connected: ${user.role}:${user.id}`
+        );
 
-        const reason =
-            cleanString(
-                req.body.reason ||
-                "Restaurant cancellation",
-                500
+        if (
+            user.role ===
+            "driver"
+        ) {
+            socket.join(
+                driverRoom(
+                    user.id
+                )
             );
-
-        if (!validId(orderId)) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
         }
 
-        const connection =
-            await db.getConnection();
-
-        try {
-
-            await connection.beginTransaction();
-
-            const [orders] =
-                await connection.execute(
-                    `
-                    SELECT *
-
-                    FROM orders
-
-                    WHERE id = ?
-                    AND restaurant_id = ?
-
-                    FOR UPDATE
-                    `,
-                    [
-                        orderId,
-                        req.user.id
-                    ]
-                );
-
-            if (!orders.length) {
-
-                await connection.rollback();
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
-
-            const order =
-                orders[0];
-
-            if (
-                ["completed", "cancelled"]
-                    .includes(order.status)
-            ) {
-
-                await connection.rollback();
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Order cannot be cancelled."
-                });
-            }
-
-            await connection.execute(
-                `
-                UPDATE orders
-
-                SET
-                    status = 'cancelled',
-                    cancellation_reason = ?,
-                    cancelled_at = NOW(),
-                    offered_driver_id = NULL,
-                    offer_expires_at = NULL
-
-                WHERE id = ?
-                `,
-                [
-                    reason,
-                    orderId
-                ]
+        if (
+            user.role ===
+            "restaurant"
+        ) {
+            socket.join(
+                restaurantRoom(
+                    user.id
+                )
             );
+        }
 
-            /*
-               إذا كان السائق قد أخذ الطلب
-               ننقص عدد طلباته النشطة.
-            */
+        if (
+            user.role ===
+            "admin"
+        ) {
+            socket.join(
+                adminRoom()
+            );
+        }
 
-            if (
-                order.driver_id &&
-                [
-                    "accepted",
-                    "picking_up",
-                    "delivering"
-                ].includes(order.status)
-            ) {
-
-                await connection.execute(
-                    `
-                    UPDATE drivers
-
-                    SET current_orders_count =
-                        GREATEST(
-                            0,
-                            current_orders_count - 1
-                        )
-
-                    WHERE id = ?
-                    `,
-                    [order.driver_id]
-                );
-
-                io.to(
-                    `driver_${order.driver_id}`
-                ).emit(
-                    "order_cancelled",
-                    {
-                        order_id:
-                            orderId
+        socket.on(
+            "driver:location",
+            async data => {
+                try {
+                    if (
+                        user.role !==
+                        "driver"
+                    ) {
+                        return;
                     }
-                );
-            }
 
-            /*
-               إذا كان مازال عند سائق
-               في مرحلة offer
-            */
-
-            if (
-                order.offered_driver_id
-            ) {
-
-                await connection.execute(
-                    `
-                    UPDATE order_dispatch_log
-
-                    SET status = 'expired'
-
-                    WHERE order_id = ?
-                    AND driver_id = ?
-                    AND status = 'offered'
-                    `,
-                    [
-                        orderId,
-                        order.offered_driver_id
-                    ]
-                );
-
-                io.to(
-                    `driver_${order.offered_driver_id}`
-                ).emit(
-                    "order_cancelled",
-                    {
-                        order_id:
-                            orderId
-                    }
-                );
-            }
-
-            await addHistory(
-                connection,
-                orderId,
-                order.status,
-                "cancelled",
-                "restaurant",
-                req.user.id
-            );
-
-            await connection.commit();
-
-            res.json({
-                success: true,
-                message:
-                    "Order cancelled."
-            });
-
-        } catch (error) {
-
-            try {
-                await connection.rollback();
-            } catch {}
-
-            console.error(
-                "Cancel order:",
-                error
-            );
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-
-        } finally {
-
-            connection.release();
-        }
-    }
-);
-
-/* =====================================================
-   GET SINGLE ORDER
-===================================================== */
-
-app.get(
-    "/api/orders/:id",
-    authenticate(
-        "restaurant",
-        "driver",
-        "admin"
-    ),
-    async (req, res) => {
-
-        const orderId =
-            Number(req.params.id);
-
-        if (!validId(orderId)) {
-
-            return res.status(400).json({
-                success: false,
-                message:
-                    "Invalid order ID."
-            });
-        }
-
-        try {
-
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        o.*,
-
-                        r.name AS restaurant_name,
-                        r.phone AS restaurant_phone,
-                        r.address AS restaurant_address,
-
-                        d.name AS driver_name,
-                        d.phone AS driver_phone,
-                        d.lat AS driver_lat,
-                        d.lng AS driver_lng
-
-                    FROM orders o
-
-                    JOIN restaurants r
-                        ON r.id = o.restaurant_id
-
-                    LEFT JOIN drivers d
-                        ON d.id = o.driver_id
-
-                    WHERE o.id = ?
-
-                    LIMIT 1
-                    `,
-                    [orderId]
-                );
-
-            if (!rows.length) {
-
-                return res.status(404).json({
-                    success: false,
-                    message:
-                        "Order not found."
-                });
-            }
-
-            const order =
-                rows[0];
-
-            /*
-               حماية البيانات
-            */
-
-            if (
-                req.user.role ===
-                "restaurant" &&
-                Number(
-                    order.restaurant_id
-                ) !==
-                Number(req.user.id)
-            ) {
-
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        "Access denied."
-                });
-            }
-
-            if (
-                req.user.role ===
-                "driver" &&
-
-                Number(order.driver_id) !==
-                Number(req.user.id) &&
-
-                Number(
-                    order.offered_driver_id
-                ) !==
-                Number(req.user.id)
-            ) {
-
-                return res.status(403).json({
-                    success: false,
-                    message:
-                        "Access denied."
-                });
-            }
-
-            /*
-               OTP لا يظهر للسائق
-               إلا بعد القبول.
-            */
-
-            if (
-                req.user.role ===
-                "driver" &&
-                ![
-                    "accepted",
-                    "picking_up",
-                    "delivering"
-                ].includes(order.status)
-            ) {
-
-                delete order.otp_code;
-            }
-
-            res.json({
-                success: true,
-                order
-            });
-
-        } catch (error) {
-
-            console.error(
-                "Get order:",
-                error
-            );
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   RESTAURANT DASHBOARD
-===================================================== */
-
-app.get(
-    "/api/restaurant/dashboard",
-    authenticate("restaurant"),
-    async (req, res) => {
-
-        try {
-
-            const restaurantId =
-                Number(req.user.id);
-
-            /*
-               عدد الطلبات اليوم
-            */
-
-            const [[stats]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS today_orders
-
-                    FROM orders
-
-                    WHERE restaurant_id = ?
-
-                    AND DATE(created_at) =
-                        CURDATE()
-                    `,
-                    [restaurantId]
-                );
-
-            /*
-               المطعم
-            */
-
-            const [[restaurant]] =
-                await db.execute(
-                    `
-                    SELECT
-                        id,
-                        name,
-                        phone,
-                        address,
-                        balance_due
-
-                    FROM restaurants
-
-                    WHERE id = ?
-                    `,
-                    [restaurantId]
-                );
-
-            /*
-               عدد السائقين المتاحين
-            */
-
-            const [[drivers]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS online_drivers
-
-                    FROM drivers
-
-                    WHERE is_online = 1
-                    AND is_active = 1
-                    `
-                );
-
-            res.json({
-
-                success: true,
-
-                restaurant,
-
-                today_orders:
-                    Number(
-                        stats.today_orders
-                    ),
-
-                online_drivers:
-                    Number(
-                        drivers.online_drivers
-                    ),
-
-                balance_due:
-                    Number(
-                        restaurant?.balance_due ||
-                        0
-                    )
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   DRIVER DASHBOARD
-===================================================== */
-
-app.get(
-    "/api/driver/dashboard",
-    authenticate("driver"),
-    async (req, res) => {
-
-        try {
-
-            const driverId =
-                Number(req.user.id);
-
-            const [[stats]] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        COUNT(
-                            CASE
-                                WHEN
-                                    status = 'completed'
-                                    AND DATE(completed_at)
-                                        = CURDATE()
-                                THEN 1
-                            END
-                        ) AS today_orders,
-
-                        COALESCE(
-                            SUM(
-                                CASE
-                                    WHEN
-                                        status = 'completed'
-                                        AND DATE(completed_at)
-                                            = CURDATE()
-                                    THEN delivery_fee
-                                    ELSE 0
-                                END
-                            ),
-                            0
-                        ) AS today_income
-
-                    FROM orders
-
-                    WHERE driver_id = ?
-                    `,
-                    [driverId]
-                );
-
-            const [[driver]] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        id,
-                        name,
-                        phone,
-                        is_online,
-                        current_orders_count,
-                        max_concurrent_orders,
-                        wallet_balance,
-                        total_earnings,
-                        driver_points
-
-                    FROM drivers
-
-                    WHERE id = ?
-                    `,
-                    [driverId]
-                );
-
-            res.json({
-
-                success: true,
-
-                driver,
-
-                today_orders:
-                    Number(
-                        stats.today_orders
-                    ),
-
-                today_income:
-                    Number(
-                        stats.today_income
-                    )
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   DRIVER WALLET
-===================================================== */
-
-app.get(
-    "/api/driver/wallet",
-    authenticate("driver"),
-    async (req, res) => {
-
-        try {
-
-            const [[driver]] =
-                await db.execute(
-                    `
-                    SELECT
-                        wallet_balance,
-                        total_earnings
-
-                    FROM drivers
-
-                    WHERE id = ?
-                    `,
-                    [req.user.id]
-                );
-
-            const [transactions] =
-                await db.execute(
-                    `
-                    SELECT
-                        id,
-                        order_id,
-                        amount,
-                        type,
-                        note,
-                        created_at
-
-                    FROM driver_transactions
-
-                    WHERE driver_id = ?
-
-                    ORDER BY created_at DESC
-
-                    LIMIT 200
-                    `,
-                    [req.user.id]
-                );
-
-            res.json({
-                success: true,
-                wallet: driver,
-                transactions
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-/* =====================================================
-   RESTAURANT ORDERS
-===================================================== */
-
-app.get(
-    "/api/restaurant/orders",
-    authenticate("restaurant"),
-    async (req, res) => {
-
-        try {
-
-            const [orders] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        o.id,
-
-                        o.customer_name,
-                        o.customer_phone,
-                        o.customer_address,
-
-                        o.pickup_lat,
-                        o.pickup_lng,
-
-                        o.delivery_lat,
-                        o.delivery_lng,
-
-                        o.food_price,
-                        o.delivery_fee,
-                        o.platform_fee,
-
-                        o.status,
-
-                        o.created_at,
-                        o.accepted_at,
-                        o.restaurant_paid_at,
-                        o.pickup_verified_at,
-                        o.delivery_started_at,
-                        o.completed_at,
-                        o.cancelled_at,
-
-                        d.id AS driver_id,
-                        d.name AS driver_name,
-                        d.phone AS driver_phone,
-                        d.lat AS driver_lat,
-                        d.lng AS driver_lng
-
-                    FROM orders o
-
-                    LEFT JOIN drivers d
-                        ON d.id = o.driver_id
-
-                    WHERE o.restaurant_id = ?
-
-                    ORDER BY
-                        o.created_at DESC
-
-                    LIMIT 500
-                    `,
-                    [req.user.id]
-                );
-
-            res.json({
-                success: true,
-                orders
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   DRIVER ORDERS
-===================================================== */
-
-app.get(
-    "/api/driver/orders",
-    authenticate("driver"),
-    async (req, res) => {
-
-        try {
-
-            const [orders] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        o.*,
-
-                        r.name AS restaurant_name,
-                        r.phone AS restaurant_phone,
-                        r.address AS restaurant_address,
-                        r.lat AS restaurant_lat,
-                        r.lng AS restaurant_lng
-
-                    FROM orders o
-
-                    JOIN restaurants r
-                        ON r.id = o.restaurant_id
-
-                    WHERE o.driver_id = ?
-
-                    ORDER BY
-                        o.created_at DESC
-
-                    LIMIT 500
-                    `,
-                    [req.user.id]
-                );
-
-            res.json({
-                success: true,
-                orders
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   ADMIN DASHBOARD
-===================================================== */
-
-app.get(
-    "/api/admin/dashboard",
-    authenticate("admin"),
-    async (req, res) => {
-
-        try {
-
-            /*
-               عدد المطاعم
-            */
-
-            const [[restaurants]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS total
-
-                    FROM restaurants
-
-                    WHERE is_active = 1
-                    `
-                );
-
-            /*
-               عدد السائقين
-            */
-
-            const [[drivers]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS total
-
-                    FROM drivers
-
-                    WHERE is_active = 1
-                    `
-                );
-
-            /*
-               السائقون المتاحون
-            */
-
-            const [[onlineDrivers]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS total
-
-                    FROM drivers
-
-                    WHERE is_active = 1
-
-                    AND is_online = 1
-                    `
-                );
-
-            /*
-               طلبات اليوم
-            */
-
-            const [[orders]] =
-                await db.execute(
-                    `
-                    SELECT
-                        COUNT(*) AS total
-
-                    FROM orders
-
-                    WHERE DATE(created_at)
-                        = CURDATE()
-                    `
-                );
-
-            /*
-               دخل المنصة اليوم
-            */
-
-            const [[income]] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        COALESCE(
-                            SUM(platform_fee),
-                            0
-                        ) AS total
-
-                    FROM orders
-
-                    WHERE
-                        platform_fee_recorded = 1
-
-                    AND DATE(pickup_verified_at)
-                        = CURDATE()
-                    `
-                );
-
-            /*
-               إجمالي ديون المطاعم
-            */
-
-            const [[due]] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        COALESCE(
-                            SUM(balance_due),
-                            0
-                        ) AS total
-
-                    FROM restaurants
-
-                    WHERE is_active = 1
-                    `
-                );
-
-            res.json({
-
-                success: true,
-
-                total_restaurants:
-                    Number(
-                        restaurants.total
-                    ),
-
-                total_drivers:
-                    Number(
-                        drivers.total
-                    ),
-
-                online_drivers:
-                    Number(
-                        onlineDrivers.total
-                    ),
-
-                today_orders:
-                    Number(
-                        orders.total
-                    ),
-
-                today_platform_income:
-                    Number(
-                        income.total
-                    ),
-
-                cumulative_restaurants_due:
-                    Number(
-                        due.total
-                    )
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   ADMIN RESTAURANT DEBTS
-===================================================== */
-
-app.get(
-    "/api/admin/restaurants/debts",
-    authenticate("admin"),
-    async (req, res) => {
-
-        try {
-
-            const [rows] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        id,
-                        name,
-                        phone,
-                        balance_due
-
-                    FROM restaurants
-
-                    WHERE is_active = 1
-
-                    ORDER BY
-                        balance_due DESC
-                    `
-                );
-
-            res.json({
-                success: true,
-                restaurants: rows
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   ADMIN ORDERS
-===================================================== */
-
-app.get(
-    "/api/admin/orders",
-    authenticate("admin"),
-    async (req, res) => {
-
-        try {
-
-            const [orders] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        o.*,
-
-                        r.name AS restaurant_name,
-                        r.phone AS restaurant_phone,
-
-                        d.name AS driver_name,
-                        d.phone AS driver_phone,
-
-                        d.lat AS driver_lat,
-                        d.lng AS driver_lng
-
-                    FROM orders o
-
-                    JOIN restaurants r
-                        ON r.id = o.restaurant_id
-
-                    LEFT JOIN drivers d
-                        ON d.id = o.driver_id
-
-                    ORDER BY
-                        o.created_at DESC
-
-                    LIMIT 1000
-                    `
-                );
-
-            res.json({
-                success: true,
-                orders
-            });
-
-        } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   ADMIN LIVE MAP
-===================================================== */
-
-app.get(
-    "/api/admin/drivers/live",
-    authenticate("admin"),
-    async (req, res) => {
-
-        try {
-
-            const [drivers] =
-                await db.execute(
-                    `
-                    SELECT
-
-                        id,
-                        name,
-                        phone,
-
+                    const {
                         lat,
-                        lng,
+                        lng
+                    } = data || {};
 
-                        is_online,
-                        current_orders_count,
-                        max_concurrent_orders,
+                    if (
+                        !isValidCoordinate(
+                            lat,
+                            lng
+                        )
+                    ) {
+                        return;
+                    }
 
-                        driver_points
+                    const updated =
+                        await updateDriverLocation(
+                            user.id,
+                            lat,
+                            lng
+                        );
 
-                    FROM drivers
+                    if (!updated) {
+                        return;
+                    }
 
-                    WHERE is_active = 1
+                    await broadcastDriverLocation(
+                        user.id,
+                        lat,
+                        lng
+                    );
+                } catch (error) {
+                    console.error(
+                        "Socket location error:",
+                        error
+                    );
+                }
+            }
+        );
 
-                    AND lat IS NOT NULL
-                    AND lng IS NOT NULL
+        socket.on(
+            "disconnect",
+            () => {
+                console.log(
+                    `Socket disconnected: ${user.role}:${user.id}`
+                );
+            }
+        );
+    }
+);
 
-                    ORDER BY
-                        is_online DESC,
-                        current_orders_count ASC
+/* =========================================================
+   AUTOMATIC DISPATCH SCANNER
+========================================================= */
+
+setInterval(
+    async () => {
+        try {
+            /*
+              First expire old offers.
+            */
+
+            const [
+                expiredOrders
+            ] =
+                await pool.execute(
+                    `
+                    SELECT id
+                    FROM orders
+                    WHERE
+                        status = 'offered'
+                        AND offer_expires_at
+                            IS NOT NULL
+                        AND offer_expires_at
+                            <= NOW()
+                    ORDER BY created_at ASC
+                    LIMIT 50
                     `
                 );
 
-            res.json({
-                success: true,
-                drivers
-            });
+            for (
+                const order
+                of expiredOrders
+            ) {
+                await expireOffer(
+                    order.id
+                );
+            }
 
+            /*
+              Then dispatch pending orders.
+            */
+
+            const [
+                pendingOrders
+            ] =
+                await pool.execute(
+                    `
+                    SELECT id
+                    FROM orders
+                    WHERE status = 'pending'
+                    ORDER BY created_at ASC
+                    LIMIT 50
+                    `
+                );
+
+            for (
+                const order
+                of pendingOrders
+            ) {
+                processOrderDispatch(
+                    order.id
+                ).catch(
+                    console.error
+                );
+            }
         } catch (error) {
-
-            console.error(error);
-
-            res.status(500).json({
-                success: false,
-                message: "Server error."
-            });
-        }
-    }
-);
-
-/* =====================================================
-   HEALTH CHECK
-===================================================== */
-
-app.get(
-    "/",
-    async (req, res) => {
-
-        try {
-
-            await db.query(
-                "SELECT 1"
+            console.error(
+                "Dispatch scanner error:",
+                error
             );
-
-            res.json({
-
-                success: true,
-
-                message:
-                    "HADROUG DELIVERY API is running.",
-
-                database:
-                    "connected",
-
-                timestamp:
-                    new Date().toISOString()
-            });
-
-        } catch {
-
-            res.status(503).json({
-
-                success: false,
-
-                message:
-                    "API is running but database is unavailable."
-            });
         }
+    },
+    5000
+);
+
+/* =========================================================
+   GLOBAL ERROR HANDLER
+========================================================= */
+
+app.use(
+    (err, req, res, next) => {
+        console.error(err);
+
+        if (
+            res.headersSent
+        ) {
+            return next(err);
+        }
+
+        return res
+            .status(500)
+            .json({
+                success: false,
+                message:
+                    "Internal server error."
+            });
     }
 );
 
-/* =====================================================
+/* =========================================================
    404
-===================================================== */
+========================================================= */
 
 app.use(
     (req, res) => {
-
         res.status(404).json({
-
             success: false,
-
             message:
                 "Route not found."
         });
     }
 );
-/* =====================================================
-   FRONTEND STATIC FILES (ربط الواجهات)
-===================================================== */
-const path = require("path");
-app.use(express.static(path.join(__dirname, "public")));
 
-/* =====================================================
-   ERROR HANDLER
-===================================================== */
+/* =========================================================
+   GRACEFUL SHUTDOWN
+========================================================= */
 
-app.use(
-    (error, req, res, next) => {
+let shuttingDown = false;
 
-        console.error(
-            "Unhandled error:",
-            error
-        );
-
-        if (res.headersSent) {
-            return next(error);
-        }
-
-        res.status(500).json({
-
-            success: false,
-
-            message:
-                "Internal server error."
-        });
+async function shutdown(
+    signal
+) {
+    if (shuttingDown) {
+        return;
     }
+
+    shuttingDown = true;
+
+    console.log(
+        `${signal}: shutting down...`
+    );
+
+    server.close(
+        async () => {
+            try {
+                await pool.end();
+
+                console.log(
+                    "MySQL pool closed."
+                );
+
+                process.exit(0);
+            } catch (error) {
+                console.error(
+                    "Shutdown error:",
+                    error
+                );
+
+                process.exit(1);
+            }
+        }
+    );
+
+    setTimeout(
+        () => {
+            console.error(
+                "Forced shutdown."
+            );
+
+            process.exit(1);
+        },
+        10000
+    ).unref();
+}
+
+process.on(
+    "SIGINT",
+    () => shutdown("SIGINT")
 );
 
-/* =====================================================
-   START SERVER
-===================================================== */
+process.on(
+    "SIGTERM",
+    () => shutdown("SIGTERM")
+);
 
-server.listen(
-    PORT,
-    () => {
+/* =========================================================
+   START SERVER
+========================================================= */
+
+async function startServer() {
+    try {
+        await pool.query(
+            "SELECT 1"
+        );
 
         console.log(
-            `🚀 HADROUG DELIVERY API running on port ${PORT}`
+            "MySQL database connected successfully."
         );
+
+        server.listen(
+            PORT,
+            "0.0.0.0",
+            () => {
+                console.log(
+                    "======================================"
+                );
+
+                console.log(
+                    "      HADROUG DELIVERY SERVER"
+                );
+
+                console.log(
+                    "======================================"
+                );
+
+                console.log(
+                    `Server running on port ${PORT}`
+                );
+
+                console.log(
+                    `http://localhost:${PORT}`
+                );
+
+                console.log(
+                    "Socket.IO: ENABLED"
+                );
+
+                console.log(
+                    "Dispatch engine: ENABLED"
+                );
+
+                console.log(
+                    "Two-order system: ENABLED"
+                );
+
+                console.log(
+                    "Offer duration: 20 seconds"
+                );
+
+                console.log(
+                    "Driver location timeout: 60 seconds"
+                );
+            }
+        );
+    } catch (error) {
+        console.error(
+            "Could not start server."
+        );
+
+        console.error(error);
+
+        process.exit(1);
     }
-);
+}
+
+startServer();
